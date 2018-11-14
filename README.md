@@ -1,2 +1,2 @@
 # summer-bursary-2018
-Project investigating the viability of using saturated absorbers to accelerate CNN computation
+Project investigating the viability of using light to accelerate CNN computation
