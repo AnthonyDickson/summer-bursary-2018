@@ -107,3 +107,6 @@ venv.bak/
 *.png
 # txt files used for wordclouds
 *.txt
+# Generated csv files
+bacteria/data/growth_stages.csv
+bacteria/data/wavelengths.csv
