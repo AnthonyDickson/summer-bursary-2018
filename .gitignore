@@ -110,3 +110,4 @@ venv.bak/
 # Generated csv files
 bacteria/data/growth_stages.csv
 bacteria/data/wavelengths.csv
+bacteria/*.pdf
