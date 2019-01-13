@@ -1,4 +1,3 @@
-import os
 from time import time
 
 import pandas as pd
@@ -25,6 +24,9 @@ def timed(func):
 
 
 class Experiment:
+    """Runs a series of classification tests on the bacteria fluorescence
+    dataset.
+    """
     growth_phases = ['lag', 'log', 'stat']
     integration_times = ['16ms', '32ms']
 
@@ -41,6 +43,7 @@ class Experiment:
         """
         self.n_jobs = n_jobs
         self.random_seed = random_seed
+        self.results = {}
 
         assert growth_phases in [*Experiment.growth_phases,
                                  'all'], \
@@ -51,10 +54,10 @@ class Experiment:
             growth_phases = Experiment.growth_phases.copy()
 
         df_16ms = pd.read_csv('data/bacteria_16ms.csv',
-                              header=[0, 1, 2],
+                              header=[0, 1, 2, 3],
                               index_col=0)
         df_32ms = pd.read_csv('data/bacteria_32ms.csv',
-                              header=[0, 1, 2],
+                              header=[0, 1, 2, 3],
                               index_col=0)
 
         self.data = {
@@ -131,7 +134,7 @@ class Experiment:
             self.X[it], self.y[it] = shuffle(self.X[it], self.y[it],
                                              random_state=self.random_seed)
     @timed
-    def run_all(self):
+    def run(self):
         """Run all tests."""
         results = {}
 
@@ -150,16 +153,19 @@ class Experiment:
                                          n_estimators=512, max_depth=1)
             results[it]['rf'] = \
                 self.random_forest_stuff(X, X_pca, y,
-                                         n_estimators=128, max_depth=3)
+                                         n_estimators=512, max_depth=3)
             results[it]['ada'] = \
                 self.adaboost_stuff(X, X_pca, y, n_estimators=256, max_depth=1)
             results[it]['ada'] = \
-                self.adaboost_stuff(X, X_pca, y, n_estimators=64, max_depth=3)
+                self.adaboost_stuff(X, X_pca, y, n_estimators=526, max_depth=3)
+
+        self.results = results
 
         print('All tests done.')
 
     def get_results(self, clf, X, X_pca, y):
         """Get accuracy scores for both X and X_pca training sets."""
+        results = []
         results = []
 
         scores = cross_val_score(clf, X, y, cv=self.cv)
@@ -250,6 +256,46 @@ class Experiment:
         return self.get_results(clf, X, X_pca, y)
 
 
+class GramnessExperiment(Experiment):
+    """Runs a series of classification tests on the bacteria fluorescence
+    dataset where the problem is simplified to classifying gramness
+    (positive/negative.
+    """
+    def _create_X_y(self):
+        """Create the X, X_pca and y data sets."""
+        if isinstance(Experiment.growth_phases, list):
+            for it in Experiment.integration_times:
+                dfs = []
+
+                for gp in Experiment.growth_phases:
+                    gp_df = self.data[it].T
+                    gp_df = gp_df.add_prefix('%s_' % gp)
+
+                    dfs.append(gp_df)
+
+                self.X[it] = pd.concat(dfs, axis=1)
+        elif isinstance(Experiment.growth_phases, str):
+            for it in Experiment.integration_times:
+                self.X[it] = self.data[it].T
+                self.X[it].add_prefix('%s_' % Experiment.growth_phases)
+        else:
+            raise TypeError(
+                'Invalid type for parameter growth_phases. Expected a list or'
+                ' a string, instead got a %s' % type(Experiment.growth_phases))
+
+        for it in Experiment.integration_times:
+            self.y[it] = self.X[it].reset_index()['gramness']
+
+        self._scale_X()
+        self._shuffle_X_y()
+
+        for it in Experiment.integration_times:
+            pca = PCA(n_components=0.99, svd_solver='full')
+            pca.fit(self.X[it])
+
+            self.X_pca[it] = pca.transform(self.X[it])
+
+
 if __name__ == '__main__':
     e = Experiment()
-    e.run_all()
+    e.run()
