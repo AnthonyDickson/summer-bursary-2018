@@ -4,7 +4,8 @@ from time import time
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
-from sklearn.model_selection import cross_val_score, GridSearchCV, RepeatedStratifiedKFold
+from sklearn.model_selection import cross_val_score, GridSearchCV, \
+    RepeatedStratifiedKFold
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
@@ -28,30 +29,33 @@ class Experiment:
     integration_times = ['16ms', '32ms']
 
     def __init__(self, growth_phases='all', n_jobs=-1, random_seed=42):
-        """Create an experiment that gets classification scores with various setups.
+        """Create an experiment that gets classification scores with various
+        setups.
 
         Arguments:
-            growth_phases: Which growth_phases of the dataframe to use. Must be one of 'lag', 'log', 'stat', or 'all'. Defaults to 'all'.
-            n_jobs: How many jobs (threads on different CPU cores) to use (where applicable). If -1 uses all available cores. Defaults to -1.
+            growth_phases: Which growth_phases of the dataframe to use.
+            Must be one of 'lag', 'log', 'stat', or 'all'. Defaults to 'all'.
+            n_jobs: How many jobs (threads on different CPU cores) to use
+            (where applicable). If -1 uses all available cores. Defaults to -1.
             random_seed: Random seed to ensure results are reproducible.
         """
         self.n_jobs = n_jobs
         self.random_seed = random_seed
 
-        expected_working_dir = 'summer-bursary-2018/bacteria'
-
-        assert os.getcwd().endswith(
-            expected_working_dir), "Expected to be in working directory ending with '%s', working directory is instead '%s'" % (
-        expected_working_dir, os.getcwd())
-
         assert growth_phases in [*Experiment.growth_phases,
-                                 'all'], "Growth phases must be one of the following: 'lag', 'log', 'stat', 'all'. It was instead '%s'." % growth_phases
+                                 'all'], \
+            "Growth phases must be one of the following: 'lag', 'log', " \
+            "'stat', 'all'. Instead got '%s'." % growth_phases
 
         if growth_phases == 'all':
             growth_phases = Experiment.growth_phases.copy()
 
-        df_16ms = pd.read_csv('data/bacteria.csv', header=[0, 1, 2], index_col=0)
-        df_32ms = pd.read_csv('data/bacteria.csv', header=[0, 1, 2], index_col=0)
+        df_16ms = pd.read_csv('data/bacteria_16ms.csv',
+                              header=[0, 1, 2],
+                              index_col=0)
+        df_32ms = pd.read_csv('data/bacteria_32ms.csv',
+                              header=[0, 1, 2],
+                              index_col=0)
 
         self.data = {
             '16ms': df_16ms[growth_phases],
@@ -90,8 +94,8 @@ class Experiment:
                 self.X[it].add_prefix('%s_' % Experiment.growth_phases)
         else:
             raise TypeError(
-                'Invalid type for parameter growth_phases. Expected a list or a string, instead got a %s' % type(
-                    Experiment.growth_phases))
+                'Invalid type for parameter growth_phases. Expected a list or'
+                ' a string, instead got a %s' % type(Experiment.growth_phases))
 
         for it in Experiment.integration_times:
             self.y[it] = self.X[it].reset_index()['species']
