@@ -1,5 +1,7 @@
 from time import time
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
@@ -15,10 +17,10 @@ def timed(func):
     """A simple decorator that prints the elapsed time of the function call."""
     def wrapper(*args, **kwargs):
         start = time()
-
-        func(*args, **kwargs)
-
+        result = func(*args, **kwargs)
         print('Elapsed time: %.2fs.' % (time() - start))
+
+        return result
 
     return wrapper
 
@@ -135,7 +137,7 @@ class Experiment:
                                              random_state=self.random_seed)
     @timed
     def run(self):
-        """Run all tests."""
+        """Run a series of tests."""
         results = {}
 
         for it in Experiment.integration_times:
@@ -146,8 +148,8 @@ class Experiment:
             X, X_pca, y = self.X[it], self.X_pca[it], self.y[it]
             results[it] = {}
 
-            results[it]['nb'] = self.naive_bayes_stuff(X, X_pca, y)
-            results[it]['svm'] = self.svm_stuff(X, X_pca, y)
+            results[it]['nb'] = self.naive_bayes_test(X, X_pca, y)
+            results[it]['svm'] = self.svm_test(X, X_pca, y)
             results[it]['rf_stumps'] = \
                 self.random_forest_stuff(X, X_pca, y,
                                          n_estimators=512, max_depth=1)
@@ -164,24 +166,43 @@ class Experiment:
         print('All tests done.')
 
     def get_results(self, clf, X, X_pca, y):
-        """Get accuracy scores for both X and X_pca training sets."""
-        results = []
+        """Get accuracy scores for both X and X_pca training sets.
+
+        Arguments:
+            clf: The classifier to evaluate.
+            X: The feature data set.
+            X_pca: The feature data set, transformed using PCA.
+            y: The target data set (labels).
+
+        Returns: A dictionary containing a list of scores for the 'original'
+                 (not transformed) X data set and the pca data set.
+        """
+        results = {}
 
         scores = cross_val_score(clf, X, y, cv=self.cv)
         print("Accuracy: %0.2f (+/- %0.2f)" %
               (scores.mean(), scores.std() * 2))
-        results.append((scores.mean(), scores.std() * 2))
+        results['original'] = scores
 
         scores = cross_val_score(clf, X_pca, y, cv=self.cv)
         print("PCA Accuracy: %0.2f (+/- %0.2f)" %
               (scores.mean(), scores.std() * 2))
-        results.append((scores.mean(), scores.std() * 2))
+        results['pca'] = scores
 
         return results
 
     @timed
-    def naive_bayes_stuff(self, X, X_pca, y):
-        """Do naive Bayes stuff."""
+    def naive_bayes_test(self, X, X_pca, y):
+        """Run a classification test using a Naive Bayes classifier.
+
+        Arguments:
+            X: The feature data set.
+            X_pca: The feature data set, transformed using PCA.
+            y: The target data set (labels).
+
+        Returns: A dictionary containing a list of scores for the 'original'
+                 (not transformed) X data set and the pca data set.
+        """
         status = 'Running Naive Bayes tests.'
         print('*' * len(status))
         print(status)
@@ -190,8 +211,19 @@ class Experiment:
         return self.get_results(GaussianNB(), X, X_pca, y)
 
     @timed
-    def svm_stuff(self, X, X_pca, y):
-        """Do SVM stuff."""
+    def svm_test(self, X, X_pca, y):
+        """Run a classification test using a SVM classifier.
+
+        Also perform grid search to find the best parameters for the SVM.
+
+        Arguments:
+            X: The feature data set.
+            X_pca: The feature data set, transformed using PCA.
+            y: The target data set (labels).
+
+        Returns: A dictionary containing a list of scores for the 'original'
+                 (not transformed) X data set and the pca data set.
+        """
         status = 'Running SVM tests.'
         print('*' * len(status))
         print(status)
@@ -216,11 +248,17 @@ class Experiment:
 
     @timed
     def random_forest_stuff(self, X, X_pca, y, n_estimators, max_depth):
-        """Do random forest stuff.
+        """Run a classification test using a Random Forest classifier.
 
         Arguments:
-             n_estimators: How many Decision Trees to use.
-             max_depth: The max depth of the Decision Trees.
+            X: The feature data set.
+            X_pca: The feature data set, transformed using PCA.
+            y: The target data set (labels).
+            n_estimators: How many Decision Trees to use.
+            max_depth: The max depth of the Decision Trees.
+
+        Returns: A dictionary containing a list of scores for the 'original'
+                 (not transformed) X data set and the pca data set.
         """
         status = 'Running RandomForest tests using %d Decision Trees with a ' \
                  'max depth of %d.' % (n_estimators, max_depth)
@@ -236,11 +274,18 @@ class Experiment:
 
     @timed
     def adaboost_stuff(self, X, X_pca, y, n_estimators, max_depth):
-        """Do AdaBoost stuff.
+        """Run a classification test using the AdaBoost algorithm and Decision
+        Trees..
 
         Arguments:
-             n_estimators: How many Decision Trees to use.
-             max_depth: The max depth of the Decision Trees.
+            X: The feature data set.
+            X_pca: The feature data set, transformed using PCA.
+            y: The target data set (labels).
+            n_estimators: How many Decision Trees to use.
+            max_depth: The max depth of the Decision Trees.
+
+        Returns: A dictionary containing a list of scores for the 'original'
+                 (not transformed) X data set and the pca data set.
         """
         status = 'Running AdaBoost tests using %d Decision Trees with a ' \
                  'max depth of %d.' % (n_estimators, max_depth)
@@ -253,6 +298,65 @@ class Experiment:
                                  random_state=self.random_seed)
 
         return self.get_results(clf, X, X_pca, y)
+
+    def _results_df(self):
+        """Create a pandas DataFrame from the results dictionary.
+
+        Returns: A DataFrame containing five columns: integration time,
+                 classifier, dataset, mean score, and score standard deviation.
+        """
+        results_array = []
+        results_dict = self.results
+
+        for integration_time in results_dict:
+            for classifier in results_dict[integration_time]:
+                for dataset in results_dict[integration_time][classifier]:
+                    mean = results_dict[integration_time][classifier][dataset].mean()
+                    std = results_dict[integration_time][classifier][dataset].std()
+
+                    results_array.append([integration_time, classifier, dataset, mean, std])
+
+        return pd.DataFrame(results_array, columns=['integration_time',
+                                                    'classifier', 'dataset',
+                                                    'mean', 'std'])
+
+    def plot_results(self):
+        """Plot the results as a grouped bar chart.
+
+        Returns: The matplotlib figure and axis objects.
+        """
+        df = self._results_df()
+
+        fig, ax = plt.subplots()
+
+        width = 0.35
+        idx = np.arange(len(df) // 2)
+        df_original = df[df['dataset'] == 'original']
+        df_pca = df[df['dataset'] == 'pca']
+
+        p1 = plt.bar(x=idx, height=df_original['mean'], width=width,
+                     yerr=df_original['std'])
+        p2 = plt.bar(x=idx + width, height=df_pca['mean'], width=width,
+                     yerr=df_pca['std'])
+
+        # Annotate bar plot with bar heights (classification scores).
+        for plot in [p1, p2]:
+            for rect in plot:
+                height = rect.get_height()
+                ax.text(rect.get_x() + 0.1, 1.05 * height, '%.2f' % height,
+                        ha='center', va='center')
+
+        ax.set_title('Classification Scores by Classifier and Dataset Transform')
+        ax.set_xticks(idx + width / 2)
+        ax.set_xticklabels(df['classifier'].unique())
+        ax.set_xlabel('Classifier')
+        ax.set_ylabel('Classification Score')
+
+        ax.legend((p1[0], p2[0]), ('None', 'PCA'), title='Transform',
+                  bbox_to_anchor=(1, 0.5), fancybox=True, shadow=True)
+        ax.autoscale_view()
+
+        return fig, ax
 
 
 class GramnessExperiment(Experiment):
