@@ -135,48 +135,45 @@ class Experiment:
         for it in Experiment.integration_times:
             self.X[it], self.y[it] = shuffle(self.X[it], self.y[it],
                                              random_state=self.random_seed)
+
     @timed
     def run(self):
         """Run a series of tests."""
-        results = {}
+        results = self.results
 
         for it in Experiment.integration_times:
             print('#' * 80)
             print('Running tests for %s integration time.' % it)
             print('#' * 80)
 
-            X, X_pca, y = self.X[it], self.X_pca[it], self.y[it]
             results[it] = {}
 
-            results[it]['nb'] = self.naive_bayes_test(X, X_pca, y)
-            results[it]['svm'] = self.svm_test(X, X_pca, y)
+            results[it]['nb'] = self.naive_bayes_test(it)
+            results[it]['svm'] = self.svm_test(it)
             results[it]['rf_stumps'] = \
-                self.random_forest_stuff(X, X_pca, y,
-                                         n_estimators=512, max_depth=1)
+                self.random_forest_test(it, n_estimators=512, max_depth=1)
             results[it]['rf'] = \
-                self.random_forest_stuff(X, X_pca, y,
-                                         n_estimators=512, max_depth=3)
+                self.random_forest_test(it, n_estimators=512, max_depth=3)
             results[it]['ada'] = \
-                self.adaboost_stuff(X, X_pca, y, n_estimators=256, max_depth=1)
+                self.adaboost_test(it, n_estimators=256, max_depth=1)
             results[it]['ada'] = \
-                self.adaboost_stuff(X, X_pca, y, n_estimators=256, max_depth=3)
-
-        self.results = results
+                self.adaboost_test(it, n_estimators=256, max_depth=3)
 
         print('All tests done.')
 
-    def get_results(self, clf, X, X_pca, y):
+    def get_results(self, clf, integration_time):
         """Get accuracy scores for both X and X_pca training sets.
 
         Arguments:
             clf: The classifier to evaluate.
-            X: The feature data set.
-            X_pca: The feature data set, transformed using PCA.
-            y: The target data set (labels).
+            integration_time: The integration time of the data to use for
+                              classification. Must be one of '16ms' or '32ms'.
 
         Returns: A dictionary containing a list of scores for the 'original'
                  (not transformed) X data set and the pca data set.
         """
+
+        X, X_pca, y = self._get_X_y(integration_time)
         results = {}
 
         scores = cross_val_score(clf, X, y, cv=self.cv)
@@ -191,14 +188,22 @@ class Experiment:
 
         return results
 
+    def _get_X_y(self, integration_time):
+        """Get the X, X_pca, and y data sets for the given integration time.
+
+        Returns: a three-tuple containing the X, X_pca, and y data sets for the
+                 given integration time.
+        """
+        return (self.X[integration_time], self.X_pca[integration_time],
+                self.y[integration_time])
+
     @timed
-    def naive_bayes_test(self, X, X_pca, y):
+    def naive_bayes_test(self, integration_time):
         """Run a classification test using a Naive Bayes classifier.
 
         Arguments:
-            X: The feature data set.
-            X_pca: The feature data set, transformed using PCA.
-            y: The target data set (labels).
+            integration_time: The integration time of the data to use for
+                              classification. Must be one of '16ms' or '32ms'.
 
         Returns: A dictionary containing a list of scores for the 'original'
                  (not transformed) X data set and the pca data set.
@@ -208,18 +213,17 @@ class Experiment:
         print(status)
         print('*' * len(status))
 
-        return self.get_results(GaussianNB(), X, X_pca, y)
+        return self.get_results(GaussianNB(), integration_time)
 
     @timed
-    def svm_test(self, X, X_pca, y):
+    def svm_test(self, integration_time):
         """Run a classification test using a SVM classifier.
 
         Also perform grid search to find the best parameters for the SVM.
 
         Arguments:
-            X: The feature data set.
-            X_pca: The feature data set, transformed using PCA.
-            y: The target data set (labels).
+            integration_time: The integration time of the data to use for
+                              classification. Must be one of '16ms' or '32ms'.
 
         Returns: A dictionary containing a list of scores for the 'original'
                  (not transformed) X data set and the pca data set.
@@ -235,6 +239,7 @@ class Experiment:
             'C': [10 ** n for n in range(-9, 2)]
         }
 
+        _, X_pca, y = self._get_X_y(integration_time)
         clf = SVC()
 
         grid_search = GridSearchCV(clf, param_grid, cv=self.cv, iid=True,
@@ -244,16 +249,15 @@ class Experiment:
         print('Best grid search score was %.2f with the following settings: %s'
               % (grid_search.best_score_, grid_search.best_params_))
 
-        return self.get_results(grid_search.best_estimator_, X, X_pca, y)
+        return self.get_results(grid_search.best_estimator_, integration_time)
 
     @timed
-    def random_forest_stuff(self, X, X_pca, y, n_estimators, max_depth):
+    def random_forest_test(self, integration_time, n_estimators, max_depth):
         """Run a classification test using a Random Forest classifier.
 
         Arguments:
-            X: The feature data set.
-            X_pca: The feature data set, transformed using PCA.
-            y: The target data set (labels).
+            integration_time: The integration time of the data to use for
+                              classification. Must be one of '16ms' or '32ms'.
             n_estimators: How many Decision Trees to use.
             max_depth: The max depth of the Decision Trees.
 
@@ -270,17 +274,16 @@ class Experiment:
                                      max_depth=max_depth,
                                      random_state=self.random_seed)
 
-        return self.get_results(clf, X, X_pca, y)
+        return self.get_results(clf, integration_time)
 
     @timed
-    def adaboost_stuff(self, X, X_pca, y, n_estimators, max_depth):
+    def adaboost_test(self, integration_time, n_estimators, max_depth):
         """Run a classification test using the AdaBoost algorithm and Decision
         Trees..
 
         Arguments:
-            X: The feature data set.
-            X_pca: The feature data set, transformed using PCA.
-            y: The target data set (labels).
+            integration_time: The integration time of the data to use for
+                              classification. Must be one of '16ms' or '32ms'.
             n_estimators: How many Decision Trees to use.
             max_depth: The max depth of the Decision Trees.
 
@@ -297,7 +300,7 @@ class Experiment:
                                  n_estimators=n_estimators,
                                  random_state=self.random_seed)
 
-        return self.get_results(clf, X, X_pca, y)
+        return self.get_results(clf, integration_time)
 
     def _results_df(self):
         """Create a pandas DataFrame from the results dictionary.
@@ -306,15 +309,17 @@ class Experiment:
                  classifier, dataset, mean score, and score standard deviation.
         """
         results_array = []
-        results_dict = self.results
+        results = self.results
 
-        for integration_time in results_dict:
-            for classifier in results_dict[integration_time]:
-                for dataset in results_dict[integration_time][classifier]:
-                    mean = results_dict[integration_time][classifier][dataset].mean()
-                    std = results_dict[integration_time][classifier][dataset].std()
+        for integration_time in results.keys():
+            for classifier in results[integration_time].keys():
+                for dataset in results[integration_time][classifier].keys():
+                    mean = \
+                        results[integration_time][classifier][dataset].mean()
+                    std = results[integration_time][classifier][dataset].std()
 
-                    results_array.append([integration_time, classifier, dataset, mean, std])
+                    results_array.append([integration_time, classifier,
+                                          dataset, mean, std])
 
         return pd.DataFrame(results_array, columns=['integration_time',
                                                     'classifier', 'dataset',
@@ -322,6 +327,8 @@ class Experiment:
 
     def plot_results(self):
         """Plot the results as a grouped bar chart.
+
+        Should be called after run().
 
         Returns: The matplotlib figure and axis objects.
         """
@@ -346,7 +353,8 @@ class Experiment:
                 ax.text(rect.get_x() + 0.1, 1.05 * height, '%.2f' % height,
                         ha='center', va='center')
 
-        ax.set_title('Classification Scores by Classifier and Dataset Transform')
+        ax.set_title('Classification Scores by Classifier and Dataset '
+                     'Transform')
         ax.set_xticks(idx + width / 2)
         ax.set_xticklabels(df['classifier'].unique())
         ax.set_xlabel('Classifier')
