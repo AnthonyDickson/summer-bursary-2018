@@ -15,6 +15,7 @@ from sklearn.utils import shuffle
 
 def timed(func):
     """A simple decorator that prints the elapsed time of the function call."""
+
     def wrapper(*args, **kwargs):
         start = time()
         result = func(*args, **kwargs)
@@ -148,15 +149,15 @@ class Experiment:
 
             results[it] = {}
 
-            results[it]['nb'] = self.naive_bayes_test(it)
+            results[it]['naive_bayes'] = self.naive_bayes_test(it)
             results[it]['svm'] = self.svm_test(it)
-            results[it]['rf_stumps'] = \
+            results[it]['random_forest_stumps'] = \
                 self.random_forest_test(it, n_estimators=512, max_depth=1)
-            results[it]['rf'] = \
+            results[it]['random_forest'] = \
                 self.random_forest_test(it, n_estimators=512, max_depth=3)
-            results[it]['ada'] = \
+            results[it]['adaboost_stumps'] = \
                 self.adaboost_test(it, n_estimators=256, max_depth=1)
-            results[it]['ada'] = \
+            results[it]['adaboost'] = \
                 self.adaboost_test(it, n_estimators=256, max_depth=3)
 
         print('All tests done.')
@@ -323,48 +324,90 @@ class Experiment:
 
         return pd.DataFrame(results_array, columns=['integration_time',
                                                     'classifier', 'dataset',
-                                                    'mean', 'std'])
+                                                    'mean_score', 'std_score'])
 
     def plot_results(self):
         """Plot the results as a grouped bar chart.
 
         Should be called after run().
 
-        Returns: The matplotlib figure and axis objects.
+        Returns: The matplotlib figure and axes objects.
+        """
+
+        df = self._results_df()
+
+        n_rows = 1
+        n_cols = 2
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 8))
+        subplot_i = 0
+
+        for ax, it in zip(axes, ['16ms', '32ms']):
+            subplot_i += 1
+
+            # Select data. #
+            original = df['dataset'] == 'original'
+            pca = df['dataset'] == 'pca'
+            integration_time = df['integration_time'] == it
+
+            df_original = df[integration_time & original]
+            df_pca = df[integration_time & pca]
+
+            # Create bar plots. #
+            width = 0.45
+            idx = np.arange(len(df_original))
+
+            original_barplot = ax.bar(x=idx, height=df_original['mean_score'],
+                                      width=width,
+                                      yerr=df_original['score_std'])
+
+            pca_barplot = ax.bar(x=idx + width, height=df_pca['mean_score'],
+                                 width=width, yerr=df_pca['score_std'])
+
+            # Add labels to plot. #
+            ax.set_title('Classification Scores for Integration Time of '
+                         '%s' % it)
+            ax.set_xticks(idx + width / 2)
+            ax.set_xticklabels(df['classifier'].unique())
+            ax.set_xlabel('Classifier')
+            ax.set_ylabel('Classification Score')
+
+            # Attach a text label above each bar displaying its height. #
+            for barplot in [original_barplot, pca_barplot]:
+                for bar in barplot:
+                    height = bar.get_height()
+                    ax.text(bar.get_x(), height, '%.2f' % height,
+                            ha='left', va='bottom')
+
+            # Add legend to the right of the last plot. #
+            if subplot_i == n_rows * n_cols:
+                ax.legend((original_barplot[0], pca_barplot[0]),
+                          ('None', 'PCA'),
+                          title='Transform',
+                          bbox_to_anchor=(1, 0.5),
+                          fancybox=True,
+                          shadow=True)
+
+            ax.autoscale_view()
+
+        fig.suptitle('Classification Scores on Bacteria Fluorescence Spectra')
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+        return fig, axes
+
+    def top_three(self):
+        """Get the top three configurations and their scores.
+
+        Should be called after run().
         """
         df = self._results_df()
 
-        fig, ax = plt.subplots()
+        best = df.sort_values(by=['mean_score', 'score_std'],
+                              ascending=[False, True])
+        best = best.reset_index(drop=True)
+        best['mean_score'] = best['mean_score'].map('{:.2f}'.format)
+        best['score_std'] = best['score_std'].map('{:.2f}'.format)
 
-        width = 0.35
-        idx = np.arange(len(df) // 2)
-        df_original = df[df['dataset'] == 'original']
-        df_pca = df[df['dataset'] == 'pca']
-
-        p1 = plt.bar(x=idx, height=df_original['mean'], width=width,
-                     yerr=df_original['std'])
-        p2 = plt.bar(x=idx + width, height=df_pca['mean'], width=width,
-                     yerr=df_pca['std'])
-
-        # Annotate bar plot with bar heights (classification scores).
-        for plot in [p1, p2]:
-            for rect in plot:
-                height = rect.get_height()
-                ax.text(rect.get_x() + 0.1, 1.05 * height, '%.2f' % height,
-                        ha='center', va='center')
-
-        ax.set_title('Classification Scores by Classifier and Dataset '
-                     'Transform')
-        ax.set_xticks(idx + width / 2)
-        ax.set_xticklabels(df['classifier'].unique())
-        ax.set_xlabel('Classifier')
-        ax.set_ylabel('Classification Score')
-
-        ax.legend((p1[0], p2[0]), ('None', 'PCA'), title='Transform',
-                  bbox_to_anchor=(1, 0.5), fancybox=True, shadow=True)
-        ax.autoscale_view()
-
-        return fig, ax
+        return best.head(3)
 
 
 class GramnessExperiment(Experiment):
@@ -372,6 +415,7 @@ class GramnessExperiment(Experiment):
     dataset where the problem is simplified to classifying gramness
     (positive/negative.
     """
+
     def _create_X_y(self):
         """Create the X, X_pca and y data sets."""
         if isinstance(Experiment.growth_phases, list):
