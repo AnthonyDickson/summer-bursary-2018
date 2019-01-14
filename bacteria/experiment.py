@@ -157,7 +157,7 @@ class Experiment:
             results[it]['ada'] = \
                 self.adaboost_stuff(X, X_pca, y, n_estimators=256, max_depth=1)
             results[it]['ada'] = \
-                self.adaboost_stuff(X, X_pca, y, n_estimators=526, max_depth=3)
+                self.adaboost_stuff(X, X_pca, y, n_estimators=256, max_depth=3)
 
         self.results = results
 
@@ -165,7 +165,6 @@ class Experiment:
 
     def get_results(self, clf, X, X_pca, y):
         """Get accuracy scores for both X and X_pca training sets."""
-        results = []
         results = []
 
         scores = cross_val_score(clf, X, y, cv=self.cv)
