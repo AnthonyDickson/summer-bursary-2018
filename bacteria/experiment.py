@@ -324,7 +324,7 @@ class Experiment:
 
         return pd.DataFrame(results_array, columns=['integration_time',
                                                     'classifier', 'dataset',
-                                                    'mean_score', 'std_score'])
+                                                    'mean_score', 'score_std'])
 
     def plot_results(self):
         """Plot the results as a grouped bar chart.
