@@ -147,13 +147,13 @@ class TestRay(unittest.TestCase):
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
 
-        self.assertTrue(ray.intersects_plane(plane))
+        self.assertTrue(ray.intersects(plane))
 
         # This ray should be close to parallel, but still intersect.
         ray = Ray3D(origin=Vec3f([0, 0, -1]),
                     direction=Vec3f([10000000, 0, 1]))
 
-        self.assertTrue(ray.intersects_plane(plane))
+        self.assertTrue(ray.intersects(plane))
 
     def test_ray_plane_contained_intersection(self):
         ray = Ray3D(origin=Vec3f.zero(),
@@ -162,7 +162,7 @@ class TestRay(unittest.TestCase):
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
 
-        self.assertTrue(ray.intersects_plane(plane))
+        self.assertTrue(ray.intersects(plane))
 
     def test_ray_plane_no_intersection(self):
         ray = Ray3D(origin=Vec3f([0, 0, -1]),
@@ -171,7 +171,12 @@ class TestRay(unittest.TestCase):
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
 
-        self.assertFalse(ray.intersects_plane(plane))
+        self.assertFalse(ray.intersects(plane))
+
+        ray = Ray3D(origin=Vec3f([0, 0, -1]),
+                    direction=Vec3f([-1, 0, 0]))
+
+        self.assertFalse(ray.intersects(plane))
 
     def test_ray_box_intersection(self):
         hit_rays = [
@@ -216,6 +221,13 @@ class TestRay(unittest.TestCase):
                              "centered at %s with the dimensions %s."
                              % (ray.origin, ray.direction,
                                 box.centroid, box.dimensions))
+
+    def test_ray_intersection_thin_box(self):
+        ray = Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, 1]))
+        box = Box3D(vmin=Vec3f([-0.5, -0.5, 0]), vmax=Vec3f([0.5, 0.5, 0]))
+
+        self.assertTrue(ray.intersects(box))
+        self.assertEqual(ray.find_intersection(box), (1, 1))
 
 
 class TestRaytracerThing(unittest.TestCase):

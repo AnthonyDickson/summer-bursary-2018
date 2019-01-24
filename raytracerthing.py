@@ -61,8 +61,49 @@ class Vec3f(np.ndarray):
         return self / np.sqrt(np.square(self).sum())
 
 
-class Plane3D:
-    """A plane in 3-D space."""
+class Object3D:
+    """Interface that defines a few common methods for 3D objects that need to
+    be support ray tracing, in particular ray intersection testing."""
+
+    def contains(self, point):
+        """Check if the object contains a point.
+
+        Arguments:
+            point: The point to check.
+
+        Returns:
+            True if the point is contained within the object, otherwise False.
+        """
+        raise NotImplementedError
+
+    def find_intersection(self, ray):
+        """Find the value of t for which a parametrically defined ray
+        intersects the object.
+
+        Arguments:
+            ray: The ray to find the intersection with.
+
+        Returns:
+            The value of t for which the ray intersects the object if such a
+            value exists, otherwise None if there is no intersection or t is
+            negative.
+        """
+        raise NotImplementedError
+
+    def intersects(self, ray):
+        """Check if a ray intersects the object.
+
+        Arguments:
+            ray: The object to test for intersection with.
+
+        Returns:
+            True if the ray and the object intersect, otherwise False.
+        """
+        return self.find_intersection(ray) is not None
+
+
+class Plane3D(Object3D):
+    """A plane in 3-D space defined by two points."""
 
     def __init__(self, origin=None, norm=None):
         """Create a plane in 3-D space.
@@ -105,12 +146,35 @@ class Plane3D:
         Returns:
             True if the point lies on the plane, otherwise False.
         """
-
         return self.origin.dot(point) == self.d
 
+    def find_intersection(self, ray):
+        """Find the intersection between the plane and a ray.
 
-class Box3D:
-    """Represents a axis-aligned bounding box (AABB) in 3-D space.
+        Arguments:
+            ray: The find to find the intersection with.
+
+        Returns:
+            the value of t for which the ray intersects the plane (the single
+            value t=0 is returned if the ray contained in the plane) if there
+            is an intersection, None if the intersection occurs 'behind' the
+            ray (i.e. t is negative) or the ray is parallel to the plane.
+        """
+        num = (self.origin - ray.origin).dot(self.norm)
+        denom = ray.direction.dot(self.norm)
+        parallel = abs(denom) < ray.epsilon
+
+        if parallel:
+            return 0 if num < ray.epsilon else None
+        else:
+            t = num / denom
+
+            return t if t >= 0 else None
+
+
+class Box3D(Object3D):
+    """Represents a axis-aligned bounding box (AABB) in 3-D space defined by
+    two points, the minimum extent and maximum extent.
 
     Based on code from: https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
     """
@@ -149,7 +213,7 @@ class Box3D:
         self.centroid = (1 / len(vmin)) * (vmax + vmin)
 
     def contains(self, point):
-        """Check if a bounding box contains a point.
+        """Check if the bounding box contains a point.
 
         Arguments:
             point: The point to check.
@@ -160,6 +224,41 @@ class Box3D:
         return (self.vmin.x <= point.x <= self.vmax.x) and \
                (self.vmin.y <= point.y <= self.vmax.y) and \
                (self.vmin.z <= point.z <= self.vmax.z)
+
+    def find_intersection(self, ray):
+        """Find the intersection(s) between the bounding box and a ray.
+
+        Arguments:
+            ray: The ray to find the intersection(s) with.
+
+        Returns:
+            If there is an intersection a 2-tuple of values representing the
+            values of t for which the ray intersects the box, otherwise None.
+        """
+        t_near = float('-inf')
+        t_far = float('inf')
+
+        for i in range(3):
+            if np.abs(ray.inverse_direction[i]) < ray.epsilon:
+                if ray.origin[i] < self.vmin[i] or ray.origin[i] > self.vmax[i]:
+                    return None
+            else:
+                t0 = (self.vmin[i] - ray.origin[i]) * ray.inverse_direction[i]
+                t1 = (self.vmax[i] - ray.origin[i]) * ray.inverse_direction[i]
+
+                if t0 > t1:
+                    t0, t1 = t1, t0
+
+                if t0 > t_near:
+                    t_near = t0
+
+                if t1 < t_far:
+                    t_far = t1
+
+                if t_near > t_far or t_far < 0:
+                    return None
+
+        return t_near, t_far
 
     def __mul__(self, other):
         vmin = self.vmin * other
@@ -217,83 +316,35 @@ class Ray3D:
         return self.origin + t * self.direction
 
     def intersects(self, other):
-        """Check if the ray intersects another object.
+        """Check if the ray intersects an object.
 
         Arguments:
             other: The object to check intersection with.
 
         Returns:
             True if the ray and the object intersect, otherwise False.
-        """
-        if isinstance(other, Plane3D):
-            return self.intersects_plane(other)
-        elif isinstance(other, Box3D):
-            return self.intersects_box(other)
-        else:
-            return NotImplemented
 
-    def intersects_plane(self, plane):
-        """Check if the ray intersects a plane.
+        Raises:
+            AttributeError: if the object `other` does not support the method
+                            `intersects`.
+        """
+        return other.intersects(self)
+
+    def find_intersection(self, other):
+        """Find the value(s) of t for which the ray intersects the object.
 
         Arguments:
-            plane: The plane to check intersection with.
+            other: The object to find the intersection with.
 
         Returns:
-            True if the ray and the plane intersect, otherwise False.
+            The value(s) of t for which the ray intersects the object, None if
+            there is no intersection or the value of t is negative.
+
+        Raises:
+            AttributeError: if the object `other` does not support the method
+                            `find_intersection`.
         """
-        denom = self.direction.dot(plane.norm)
-        parallel = denom < self.epsilon
-
-        if parallel:
-            return (plane.origin - self.origin).dot(plane.norm) < self.epsilon
-        else:
-            return True
-
-    def intersects_box(self, box):
-        """Check if the ray intersects a box.
-
-        Arguments:
-            box: The box to check intersection with.
-
-        Returns:
-            True if the ray and the box intersect, otherwise False.
-        """
-        return self.box_intersection(box) is not None
-
-    def box_intersection(self, box):
-        """Find the intersection(s) between the ray and a box (AABB).
-
-        Arguments:
-            box: The box to find the intersection(s) with.
-
-        Returns:
-            If there is an intersection a 2-tuple of values representing the values of t for which the ray intersects
-            the box, otherwise None.
-        """
-        t_near = float('-inf')
-        t_far = float('inf')
-
-        for i in range(3):
-            if np.abs(self.inverse_direction[i]) < self.epsilon:
-                if self.origin[i] < box.vmin[i] or self.origin[i] > box.vmax[i]:
-                    return None
-            else:
-                t0 = (box.vmin[i] - self.origin[i]) * self.inverse_direction[i]
-                t1 = (box.vmax[i] - self.origin[i]) * self.inverse_direction[i]
-
-                if t0 > t1:
-                    t0, t1 = t1, t0
-
-                if t0 > t_near:
-                    t_near = t0
-
-                if t1 < t_far:
-                    t_far = t1
-
-                if t_near > t_far or t_far < 0:
-                    return None
-
-        return t_near, t_far
+        return other.find_intersection(self)
 
 
 class RayTracerThing:
