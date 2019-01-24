@@ -182,6 +182,7 @@ class TestRay(unittest.TestCase):
             Ray3D(origin=Vec3f([0, -1, 0]), direction=Vec3f([0, 1, 0])),
             Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, 1])),
             Ray3D(origin=Vec3f([-1, -1, -1]), direction=Vec3f([1, 1, 1])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 1, 1]))
         ]
 
         box = Box3D()
@@ -196,9 +197,16 @@ class TestRay(unittest.TestCase):
                                                                box.dimensions))
 
         miss_rays = [
+            Ray3D(origin=Vec3f([1, 0, 0]), direction=Vec3f([1, 0, 0])),
+            Ray3D(origin=Vec3f([0, 1, 0]), direction=Vec3f([0, 1, 0])),
+            Ray3D(origin=Vec3f([0, 0, 1]), direction=Vec3f([0, 0, 1])),
+            Ray3D(origin=Vec3f([-1, 0, 0]), direction=Vec3f([-1, 0, 0])),
+            Ray3D(origin=Vec3f([0, -1, 0]), direction=Vec3f([0, -1, 0])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, -1])),
+            Ray3D(origin=Vec3f([-1, -1, -1]), direction=Vec3f([-1, -1, -1])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, -1, -1])),
             Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0.01, 0.01, -1])),
             Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, -1])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 1, 1]))
         ]
 
         for ray in miss_rays:

@@ -85,9 +85,9 @@ class Plane3D:
             norm = Vec3f([0, 0, 1])
 
         for vector in [origin, norm]:
-            assert vector.shape == (3, ), "Plane3D expects a vector with " \
-                                          "the shape (3, ), instead got %s." \
-                                          % vector.shape
+            assert vector.shape == (3,), "Plane3D expects a vector with " \
+                                         "the shape (3, ), instead got %s." \
+                                         % vector.shape
 
         assert np.count_nonzero(norm) > 0, "At least one element of `norm` " \
                                            "must be non-zero."
@@ -139,9 +139,9 @@ class Box3D:
             vmax = Vec3f([0.5, 0.5, 0.5])
 
         for vector in [vmin, vmax]:
-            assert vector.shape == (3, ), "Box3D expects a vector with " \
-                                          "the shape (3, ), instead got %s." \
-                                          % vector.shape
+            assert vector.shape == (3,), "Box3D expects a vector with " \
+                                         "the shape (3, ), instead got %s." \
+                                         % vector.shape
 
         self.vmin = vmin
         self.vmax = vmax
@@ -195,8 +195,8 @@ class Ray3D:
         if direction is None:
             direction = Vec3f.zero()
 
-        assert origin.shape == (3, )
-        assert direction.shape == (3, )
+        assert origin.shape == (3,)
+        assert direction.shape == (3,)
 
         direction = direction.normalise()
 
@@ -252,28 +252,48 @@ class Ray3D:
     def intersects_box(self, box):
         """Check if the ray intersects a box.
 
-        Implementation based on code from: https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
-
         Arguments:
             box: The box to check intersection with.
 
         Returns:
             True if the ray and the box intersect, otherwise False.
         """
-        # Need to handle case where rays are parallel on axes?
+        return self.box_intersection(box) is not None
 
-        # for dim in range(3):
-        #     if self.inverse_direction[dim] < self.epsilon:
-        #         if self.origin[dim] < box.vmin[dim] or self.origin[dim] > box.vmax[dim]:
-        #             return False
+    def box_intersection(self, box):
+        """Find the intersection(s) between the ray and a box (AABB).
 
-        t0 = (box.vmin - self.origin) * self.inverse_direction
-        t1 = (box.vmax - self.origin) * self.inverse_direction
+        Arguments:
+            box: The box to find the intersection(s) with.
 
-        tmin = min(t0.min(), t1.min())
-        tmax = max(t0.max(), t1.max())
+        Returns:
+            If there is an intersection a 2-tuple of values representing the values of t for which the ray intersects
+            the box, otherwise None.
+        """
+        t_near = float('-inf')
+        t_far = float('inf')
 
-        return tmin.max() <= tmax.min()
+        for i in range(3):
+            if np.abs(self.inverse_direction[i]) < self.epsilon:
+                if self.origin[i] < box.vmin[i] or self.origin[i] > box.vmax[i]:
+                    return None
+            else:
+                t0 = (box.vmin[i] - self.origin[i]) * self.inverse_direction[i]
+                t1 = (box.vmax[i] - self.origin[i]) * self.inverse_direction[i]
+
+                if t0 > t1:
+                    t0, t1 = t1, t0
+
+                if t0 > t_near:
+                    t_near = t0
+
+                if t1 < t_far:
+                    t_far = t1
+
+                if t_near > t_far or t_far < 0:
+                    return None
+
+        return t_near, t_far
 
 
 class RayTracerThing:
