@@ -75,6 +75,9 @@ class Ray:
                        z direction, (0, 0, 1). The direction will be
                        normalised.
 
+        Raises:
+            AssertionError: if either of the input vectors are not the correct
+                            shape, (3, ).
         """
         if origin is None:
             origin = Vec3f.zero()
@@ -113,8 +116,6 @@ class Ray:
 
     def intersects_plane(self, plane):
         """Check if the ray intersects a plane.
-
-        Based on code from: https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-plane-and-ray-disk-intersection
 
         Arguments:
             plane: The plane to check intersection with.
@@ -166,8 +167,8 @@ class Plane3D:
         self.norm = norm.normalise()
         self.d = origin.dot(norm)
 
-    def point_intersects(self, point):
-        """Check if a point intersects (i.e. lies on) a plane.
+    def contains(self, point):
+        """Check if a plane contains a point.
 
         Arguments:
             point: The point in 3-D space to check intersection for.
@@ -177,6 +178,68 @@ class Plane3D:
         """
 
         return self.origin.dot(point) == self.d
+
+
+class Box3D:
+    """Represents a axis-aligned bounding box (AABB) in 3-D space.
+
+    Based on code from: https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
+    """
+
+    def __init__(self, vmin=None, vmax=None):
+        """Create a bounding box defined by two points in space (the minimum
+        and maximum extents, i.e. a set of opposite corners in a cube).
+
+        If both parameters are left at their default values then a unit cube
+        centered around the origin is created.
+
+        Arguments:
+            vmin: The vector describing the minimum extent of the cube. If set
+                  to None then `vmin` is set to the vector (-0.5, -0.5, -0.5).
+            vmin: The vector describing the maximum extent of the cube. If set
+                  to None then `vmax` is set to the vector (0.5, 0.5, 0.5).
+
+        Raises:
+            AssertionError: if either of the input vectors are not the correct
+                            shape, (3, ).
+        """
+        if vmin is None:
+            vmin = Vec3f([-0.5, -0.5, -0.5])
+
+        if vmax is None:
+            vmax = Vec3f([0.5, 0.5, 0.5])
+
+        for vector in [vmin, vmax]:
+            assert vector.shape == (3, ), "Box3D expects a vector with " \
+                                          "the shape (3, ), instead got %s." \
+                                          % vector.shape
+
+        self.vmin = vmin
+        self.vmax = vmax
+        self.dimensions = vmax - vmin
+        self.centroid = (1 / len(vmin)) * (vmax + vmin)
+
+    def contains(self, point):
+        """Check if a bounding box contains a point.
+
+        Arguments:
+            point: The point to check.
+
+        Returns:
+            True if the bounding box contains the point, False otherwise.
+        """
+        return (self.vmin.x <= point.x <= self.vmax.x) and \
+               (self.vmin.y <= point.y <= self.vmax.y) and \
+               (self.vmin.z <= point.z <= self.vmax.z)
+
+    def __mul__(self, other):
+        vmin = self.vmin * other
+        vmax = self.vmax * other
+
+        return Box3D(vmin, vmax)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
 
 class RayTracerThing:

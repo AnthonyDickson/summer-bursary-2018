@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from raytracerthing import RayTracerThing, Vec3f, Ray, Plane3D
+from raytracerthing import RayTracerThing, Vec3f, Ray, Plane3D, Box3D
 
 
 class TestVec3D(unittest.TestCase):
@@ -77,7 +77,44 @@ class TestPlane3D(unittest.TestCase):
         plane = Plane3D()  # any point with z=0 should intersect.
         point = Vec3f([1, 3, 0])
 
-        self.assertTrue(plane.point_intersects(point))
+        self.assertTrue(plane.contains(point))
+
+
+class TestBox3D(unittest.TestCase):
+
+    def test_init(self):
+        box = Box3D()
+
+        expected = Vec3f.zero()
+        actual = box.centroid
+
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected box centroid to be at the point %s, but "
+                        "instead it was found at the point %s"
+                        % (expected, actual))
+
+        expected = [1.0, 1.0, 1.0]
+        actual = box.dimensions
+
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected box dimensions to be %s, "
+                        "but instead it was  %s"
+                        % (expected, actual))
+
+    def test_contains_point(self):
+        box = 2 * Box3D()  # unit cube scaled by 2.
+
+        point = Vec3f.zero()
+
+        self.assertTrue(box.contains(point))
+
+        point = Vec3f([1, 1, 1])
+
+        self.assertTrue(box.contains(point))
+
+        point = Vec3f([1, 1, 1.00000000000001])
+
+        self.assertFalse(box.contains(point))
 
 
 class TestRay(unittest.TestCase):
@@ -151,7 +188,9 @@ class TestRaytracerThing(unittest.TestCase):
 
         actual = the_thing.forward(image)
 
-        self.assertTrue(np.array_equal(expected, actual))
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected an output of %s, instead got %s."
+                        % (expected, actual))
 
 
 if __name__ == '__main__':
