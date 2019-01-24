@@ -61,77 +61,6 @@ class Vec3f(np.ndarray):
         return self / np.sqrt(np.square(self).sum())
 
 
-class Ray:
-    """Represents a ray object used in ray tracing."""
-
-    def __init__(self, origin=None, direction=None):
-        """Create a ray.
-
-        Arguments:
-            origin: The point in space from where the ray originates. If set to
-                    None then origin is set to the point (0, 0, 0).
-            direction: The direction that the ray is travelling in. If set to
-                       None then the direction is set to point in the positive
-                       z direction, (0, 0, 1). The direction will be
-                       normalised.
-
-        Raises:
-            AssertionError: if either of the input vectors are not the correct
-                            shape, (3, ).
-        """
-        if origin is None:
-            origin = Vec3f.zero()
-
-        if direction is None:
-            direction = Vec3f.zero()
-
-        assert origin.shape == (3, )
-        assert direction.shape == (3, )
-
-        direction = direction.normalise()
-
-        self.origin = origin
-        self.direction = direction
-        self.epsilon = np.finfo(type(self.origin.x)).eps
-
-    def get_point(self, t=0):
-        """Get the point along the ray for a given value of t.
-
-        Returns:
-            the point along the ray for the given value of t.
-        """
-        return self.origin + t * self.direction
-
-    def intersects(self, other):
-        """Check if the ray intersects another object.
-
-        Arguments:
-            other: The object to check intersection with.
-
-        Returns:
-            True if the ray and the object intersect, otherwise False.
-        """
-        if isinstance(other, Plane3D):
-            return self.intersects_plane(other)
-
-    def intersects_plane(self, plane):
-        """Check if the ray intersects a plane.
-
-        Arguments:
-            plane: The plane to check intersection with.
-
-        Returns:
-            True if the plane and the object intersect, otherwise False.
-        """
-        denom = self.direction.dot(plane.norm)
-        parallel = denom < self.epsilon
-
-        if parallel:
-            return (plane.origin - self.origin).dot(plane.norm) < self.epsilon
-        else:
-            return True
-
-
 class Plane3D:
     """A plane in 3-D space."""
 
@@ -240,6 +169,111 @@ class Box3D:
 
     def __rmul__(self, other):
         return self.__mul__(other)
+
+
+class Ray3D:
+    """Represents a ray object used in ray tracing."""
+
+    def __init__(self, origin=None, direction=None):
+        """Create a ray.
+
+        Arguments:
+            origin: The point in space from where the ray originates. If set to
+                    None then origin is set to the point (0, 0, 0).
+            direction: The direction that the ray is travelling in. If set to
+                       None then the direction is set to point in the positive
+                       z direction, (0, 0, 1). The direction will be
+                       normalised.
+
+        Raises:
+            AssertionError: if either of the input vectors are not the correct
+                            shape, (3, ).
+        """
+        if origin is None:
+            origin = Vec3f.zero()
+
+        if direction is None:
+            direction = Vec3f.zero()
+
+        assert origin.shape == (3, )
+        assert direction.shape == (3, )
+
+        direction = direction.normalise()
+
+        self.origin = origin
+        self.direction = direction
+        # use np.divide to avoid division by zero warnings.
+        self.inverse_direction = np.divide(1, direction,
+                                           out=np.zeros_like(direction),
+                                           where=direction != 0)
+        self.epsilon = np.finfo(type(self.origin.x)).eps
+
+    def get_point(self, t=0):
+        """Get the point along the ray for a given value of t.
+
+        Returns:
+            the point along the ray for the given value of t.
+        """
+        return self.origin + t * self.direction
+
+    def intersects(self, other):
+        """Check if the ray intersects another object.
+
+        Arguments:
+            other: The object to check intersection with.
+
+        Returns:
+            True if the ray and the object intersect, otherwise False.
+        """
+        if isinstance(other, Plane3D):
+            return self.intersects_plane(other)
+        elif isinstance(other, Box3D):
+            return self.intersects_box(other)
+        else:
+            return NotImplemented
+
+    def intersects_plane(self, plane):
+        """Check if the ray intersects a plane.
+
+        Arguments:
+            plane: The plane to check intersection with.
+
+        Returns:
+            True if the ray and the plane intersect, otherwise False.
+        """
+        denom = self.direction.dot(plane.norm)
+        parallel = denom < self.epsilon
+
+        if parallel:
+            return (plane.origin - self.origin).dot(plane.norm) < self.epsilon
+        else:
+            return True
+
+    def intersects_box(self, box):
+        """Check if the ray intersects a box.
+
+        Implementation based on code from: https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
+
+        Arguments:
+            box: The box to check intersection with.
+
+        Returns:
+            True if the ray and the box intersect, otherwise False.
+        """
+        # Need to handle case where rays are parallel on axes?
+
+        # for dim in range(3):
+        #     if self.inverse_direction[dim] < self.epsilon:
+        #         if self.origin[dim] < box.vmin[dim] or self.origin[dim] > box.vmax[dim]:
+        #             return False
+
+        t0 = (box.vmin - self.origin) * self.inverse_direction
+        t1 = (box.vmax - self.origin) * self.inverse_direction
+
+        tmin = min(t0.min(), t1.min())
+        tmax = max(t0.max(), t1.max())
+
+        return tmin.max() <= tmax.min()
 
 
 class RayTracerThing:

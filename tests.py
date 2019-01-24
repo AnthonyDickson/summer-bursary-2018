@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from raytracerthing import RayTracerThing, Vec3f, Ray, Plane3D, Box3D
+from raytracerthing import RayTracerThing, Vec3f, Ray3D, Plane3D, Box3D
 
 
 class TestVec3D(unittest.TestCase):
@@ -120,7 +120,7 @@ class TestBox3D(unittest.TestCase):
 class TestRay(unittest.TestCase):
 
     def test_ray_at_origin(self):
-        ray = Ray()
+        ray = Ray3D()
 
         expected = np.array([0, 0, 0])
         actual = ray.get_point(t=0)
@@ -128,7 +128,7 @@ class TestRay(unittest.TestCase):
         self.assertTrue(np.array_equal(expected, actual))
 
     def test_ray_position(self):
-        ray = Ray(direction=Vec3f([0, 0, 1]))
+        ray = Ray3D(direction=Vec3f([0, 0, 1]))
 
         expected = np.array([0, 0, 1])
         actual = ray.get_point(t=1)
@@ -141,8 +141,8 @@ class TestRay(unittest.TestCase):
         self.assertTrue(np.array_equal(expected, actual))
 
     def test_ray_plane_single_intersection(self):
-        ray = Ray(origin=Vec3f([0, 0, -1]),
-                  direction=Vec3f([0, 0, 1]))
+        ray = Ray3D(origin=Vec3f([0, 0, -1]),
+                    direction=Vec3f([0, 0, 1]))
 
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
@@ -150,14 +150,14 @@ class TestRay(unittest.TestCase):
         self.assertTrue(ray.intersects_plane(plane))
 
         # This ray should be close to parallel, but still intersect.
-        ray = Ray(origin=Vec3f([0, 0, -1]),
-                  direction=Vec3f([10000000, 0, 1]))
+        ray = Ray3D(origin=Vec3f([0, 0, -1]),
+                    direction=Vec3f([10000000, 0, 1]))
 
         self.assertTrue(ray.intersects_plane(plane))
 
     def test_ray_plane_contained_intersection(self):
-        ray = Ray(origin=Vec3f.zero(),
-                  direction=Vec3f([1, 0, 0]))
+        ray = Ray3D(origin=Vec3f.zero(),
+                    direction=Vec3f([1, 0, 0]))
 
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
@@ -165,13 +165,49 @@ class TestRay(unittest.TestCase):
         self.assertTrue(ray.intersects_plane(plane))
 
     def test_ray_plane_no_intersection(self):
-        ray = Ray(origin=Vec3f([0, 0, -1]),
-                  direction=Vec3f([1, 0, 0]))
+        ray = Ray3D(origin=Vec3f([0, 0, -1]),
+                    direction=Vec3f([1, 0, 0]))
 
         plane = Plane3D(origin=Vec3f.zero(),
                         norm=Vec3f([0, 0, 1]))
 
         self.assertFalse(ray.intersects_plane(plane))
+
+    def test_ray_box_intersection(self):
+        hit_rays = [
+            Ray3D(origin=Vec3f([1, 0, 0]), direction=Vec3f([-1, 0, 0])),
+            Ray3D(origin=Vec3f([0, 1, 0]), direction=Vec3f([0, -1, 0])),
+            Ray3D(origin=Vec3f([0, 0, 1]), direction=Vec3f([0, 0, -1])),
+            Ray3D(origin=Vec3f([-1, 0, 0]), direction=Vec3f([1, 0, 0])),
+            Ray3D(origin=Vec3f([0, -1, 0]), direction=Vec3f([0, 1, 0])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, 1])),
+            Ray3D(origin=Vec3f([-1, -1, -1]), direction=Vec3f([1, 1, 1])),
+        ]
+
+        box = Box3D()
+
+        for ray in hit_rays:
+            self.assertTrue(ray.intersects(box),
+                            "The ray originating at %s and travelling in the "
+                            "direction %s should intersect the cube centered "
+                            "at %s with the dimensions %s." % (ray.origin,
+                                                               ray.direction,
+                                                               box.centroid,
+                                                               box.dimensions))
+
+        miss_rays = [
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0.01, 0.01, -1])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, -1])),
+            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 1, 1]))
+        ]
+
+        for ray in miss_rays:
+            self.assertFalse(ray.intersects(box),
+                             "The ray originating at %s and travelling in the "
+                             "direction %s should NOT intersect the cube "
+                             "centered at %s with the dimensions %s."
+                             % (ray.origin, ray.direction,
+                                box.centroid, box.dimensions))
 
 
 class TestRaytracerThing(unittest.TestCase):
