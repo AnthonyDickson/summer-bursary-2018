@@ -221,10 +221,10 @@ class Plane3D(Object3D):
         """
         num = (self.origin - ray.origin).dot(self.norm)
         denom = ray.direction.dot(self.norm)
-        parallel = abs(denom) < ray.epsilon
+        parallel = abs(denom) < Ray3D.epsilon
 
         if parallel:
-            return 0 if num < ray.epsilon else None
+            return 0 if num < Ray3D.epsilon else None
         else:
             t = num / denom
 
@@ -298,7 +298,7 @@ class Box3D(Object3D):
         t_far = float('inf')
 
         for i in range(3):
-            if np.abs(ray.inverse_direction[i]) < ray.epsilon:
+            if np.abs(ray.inverse_direction[i]) < Ray3D.epsilon:
                 if ray.origin[i] < self.vmin[i] or ray.origin[i] > self.vmax[i]:
                     return None
             else:
@@ -332,6 +332,8 @@ class Box3D(Object3D):
 class Ray3D:
     """Represents a ray object used in ray tracing."""
 
+    epsilon = np.finfo(np.float64).eps
+
     def __init__(self, origin=None, direction=None):
         """Create a ray.
 
@@ -364,7 +366,6 @@ class Ray3D:
         self.inverse_direction = np.divide(1, direction,
                                            out=np.zeros_like(direction),
                                            where=direction != 0)
-        self.epsilon = np.finfo(type(self.origin.x)).eps
 
     def get_point(self, t=0):
         """Get the point along the ray for a given value of t.
