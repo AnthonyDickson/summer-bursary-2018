@@ -60,12 +60,57 @@ class TestPixelGrid(unittest.TestCase):
         ]
 
         for (x, y), expected in zip(points, expected_grid_coords):
-            actual = pg.xy_to_grid_coords(x, y)
+            actual = pg.to_grid_coords(x, y)
 
             self.assertEqual(expected, actual,
                              "Expected the point (%d, %d) to translate to the "
                              "grid coords (row, col) [%s], instead got %s."
                              % (x, y, expected, actual))
+
+    def test_2x2grid_coords_conversion_right_edge(self):
+        shape = (2, 2)
+
+        pg = PixelGrid(*shape)
+
+        # points are defined at the top right corner of each pixel.
+        points = [
+            (0, 1),
+            (2, 1),
+            (0, -1),
+            (2, -1)
+        ]
+
+        # Points that lie on overlapping borders cause the resulting column to be that of the pixel to the right.
+        expected_grid_coords = [
+            (0, 1),
+            (0, 1),
+            (1, 1),
+            (1, 1)
+        ]
+
+        for (x, y), expected in zip(points, expected_grid_coords):
+            actual = pg.to_grid_coords(x, y)
+
+            self.assertEqual(expected, actual,
+                             "Expected the point (%d, %d) to translate to the "
+                             "grid coords (row, col) [%s], instead got %s."
+                             % (x, y, expected, actual))
+
+    def test_grid_coords_4way_intersection(self):
+        shape = (2, 2)
+
+        pg = PixelGrid(*shape)
+
+        x, y = (0, 0)  # right in the middle of the grid where all four pixels meet.
+        # when the point intersects where pixels are overlapping, the row/column is resolved to that of the pixel
+        # below/to the right.
+        expected = (1, 1)
+        actual = pg.to_grid_coords(x, y)
+
+        self.assertEqual(expected, actual,
+                         "Expected the point (%d, %d) to translate to the "
+                         "grid coords (row, col) [%s], instead got %s."
+                         % (x, y, expected, actual))
 
     def test_4x4grid_coords_conversion(self):
         shape = (4, 4)
@@ -82,7 +127,30 @@ class TestPixelGrid(unittest.TestCase):
                 expected_grid_coords.append((row, col))
 
         for (x, y), expected in zip(points, expected_grid_coords):
-            actual = pg.xy_to_grid_coords(x, y)
+            actual = pg.to_grid_coords(x, y)
+
+            self.assertEqual(expected, actual,
+                             "Expected the point (%d, %d) to translate to the "
+                             "grid coords (row, col) [%s], instead got %s."
+                             % (x, y, expected, actual))
+
+    def test_grid_coords_wider_pixels(self):
+        shape = (4, 4)
+        pixel_size = 2
+
+        pg = PixelGrid(*shape, pixel_size=pixel_size)
+
+        top_left = (pg.top_left.x, pg.top_left.y)
+        points = []
+        expected_grid_coords = []
+
+        for row in range(shape[0]):
+            for col in range(shape[1]):
+                points.append((top_left[0] + col * pixel_size, top_left[1] - row * pixel_size))
+                expected_grid_coords.append((row, col))
+
+        for (x, y), expected in zip(points, expected_grid_coords):
+            actual = pg.to_grid_coords(x, y)
 
             self.assertEqual(expected, actual,
                              "Expected the point (%d, %d) to translate to the "

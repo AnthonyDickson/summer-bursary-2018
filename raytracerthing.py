@@ -74,34 +74,39 @@ class PixelGrid:
         intersection_t = intersection_t[0]
         intersection_point = ray.get_point(intersection_t)
         x, y, _ = intersection_point
-        row, col = self.xy_to_grid_coords(x, y)
+        row, col = self.to_grid_coords(x, y)
 
         return self.pixels[row, col]
 
-    def xy_to_grid_coords(self, x, y):
-        for row in range(self.shape[0]):
-            for col in range(self.shape[1]):
-                x0 = self.top_left.x + col * self.pixel_size
-                x1 = x0 + self.pixel_size
+    def to_grid_coords(self, x, y):
+        """Convert world coordinates (only x and y) to grid coordinates (i.e. pixel array indices.
 
-                x0, x1 = min(x0, x1), max(x0, x1)
+        It assumed that the point is contained within the pixel grid.
 
-                y0 = self.top_left.y - row * self.pixel_size
-                y1 = y0 - self.pixel_size
-                y0, y1 = min(y0, y1), max(y0, y1)
+        Any points that coincide with the border between two pixels will cause the returned column to be that of the
+        pixel located to the right
 
-                if x0 <= x <= x1 and y0 <= y <= y1:
-                    return row, col
+        Arguments:
+            x: The x coordinate to convert.
+            y: The y coordinate to convert.
 
-        return None
+        Returns:
+            A 2-tuple that contains the row and column position of the pixel in the pixel grid.
+        """
+        # align bottom edge of grid to y=0 and flip y so that it increases in the same direction as the grid rows
+        # (i.e. so that y increases in the negative y direction, starting from the top of the grid
+        # (y = 0.5 * self.height).
+        row = -y + 0.5 * self.height
+        row = row / self.pixel_size  # convert from units of distance to number of pixels from bottom of grid.
+        row = min(row, self.n_rows - 1)
+        row = int(row)
 
-        # col = int(x - self.top_left.x)
-        # row = int(y + self.top_left.y)
-        #
-        # col = col // self.n_cols
-        # row = row % self.n_rows
-        #
-        # return row, col
+        col = x + 0.5 * self.width  # align left edge of grid to x=0
+        col = col / self.pixel_size  # convert from units of distance to number of pixels from LHS of grid.
+        col = min(col, self.n_cols - 1)
+        col = int(col)
+
+        return row, col
 
     def __getitem__(self, item):
         """
