@@ -18,6 +18,60 @@ class Vec3f(np.ndarray):
         """
         return Vec3f([0, 0, 0])
 
+    @staticmethod
+    def forward():
+        """Create a unit vector pointing forwards (positive z).
+
+        Returns:
+            a forward pointing unit vector.
+        """
+        return Vec3f([0, 0, 1])
+
+    @staticmethod
+    def backwards():
+        """Create a unit vector pointing backwards (negative z).
+
+        Returns:
+            a backwards pointing unit vector.
+        """
+        return Vec3f([0, 0, -1])
+
+    @staticmethod
+    def up():
+        """Create a unit vector pointing upwards (positive y).
+
+        Returns:
+            a upwards pointing unit vector.
+        """
+        return Vec3f([0, 1, 0])
+
+    @staticmethod
+    def down():
+        """Create a unit vector pointing downwards (negative y).
+
+        Returns:
+            a downwards pointing unit vector.
+        """
+        return Vec3f([0, -1, 0])
+
+    @staticmethod
+    def right():
+        """Create a unit vector pointing right (positive x).
+
+        Returns:
+            a right pointing unit vector.
+        """
+        return Vec3f([1, 0, 0])
+
+    @staticmethod
+    def left():
+        """Create a unit vector pointing left (negative x).
+
+        Returns:
+            a left pointing unit vector.
+        """
+        return Vec3f([-1, 0, 0])
+
     def __new__(cls, input_array):
         obj = np.asarray(input_array).view(cls)
 

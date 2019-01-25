@@ -28,15 +28,15 @@ class TestVec3D(unittest.TestCase):
     def test_normalise_zero(self):
         v = Vec3f.zero()
 
-        expected = [0, 0, 0]
+        expected = Vec3f.zero()
         actual = v.normalise()
 
         self.assertTrue(np.array_equal(expected, actual))
 
     def test_normalise_simple(self):
-        v = Vec3f([0, 0, 1])
+        v = Vec3f.forward()
 
-        expected = [0, 0, 1]
+        expected = Vec3f.forward()
         actual = v.normalise()
 
         self.assertTrue(np.array_equal(expected, actual))
@@ -61,7 +61,7 @@ class TestPlane3D(unittest.TestCase):
         self.assertEqual(expected, actual)
 
         plane = Plane3D(origin=Vec3f([1, 0, 1]),
-                        norm=Vec3f([1, 0, 0]))
+                        norm=Vec3f.right())
 
         expected = 1
         actual = plane.d
@@ -122,15 +122,15 @@ class TestRay(unittest.TestCase):
     def test_ray_at_origin(self):
         ray = Ray3D()
 
-        expected = np.array([0, 0, 0])
+        expected = Vec3f.zero()
         actual = ray.get_point(t=0)
 
         self.assertTrue(np.array_equal(expected, actual))
 
     def test_ray_position(self):
-        ray = Ray3D(direction=Vec3f([0, 0, 1]))
+        ray = Ray3D(direction=Vec3f.forward())
 
-        expected = np.array([0, 0, 1])
+        expected = Vec3f.forward()
         actual = ray.get_point(t=1)
 
         self.assertTrue(np.array_equal(expected, actual))
@@ -141,53 +141,53 @@ class TestRay(unittest.TestCase):
         self.assertTrue(np.array_equal(expected, actual))
 
     def test_ray_plane_single_intersection(self):
-        ray = Ray3D(origin=Vec3f([0, 0, -1]),
-                    direction=Vec3f([0, 0, 1]))
+        ray = Ray3D(origin=Vec3f.backwards(),
+                    direction=Vec3f.forward())
 
         plane = Plane3D(origin=Vec3f.zero(),
-                        norm=Vec3f([0, 0, 1]))
+                        norm=Vec3f.forward())
 
         self.assertTrue(ray.intersects(plane))
 
         # This ray should be close to parallel, but still intersect.
-        ray = Ray3D(origin=Vec3f([0, 0, -1]),
+        ray = Ray3D(origin=Vec3f.backwards(),
                     direction=Vec3f([10000000, 0, 1]))
 
         self.assertTrue(ray.intersects(plane))
 
     def test_ray_plane_contained_intersection(self):
         ray = Ray3D(origin=Vec3f.zero(),
-                    direction=Vec3f([1, 0, 0]))
+                    direction=Vec3f.right())
 
         plane = Plane3D(origin=Vec3f.zero(),
-                        norm=Vec3f([0, 0, 1]))
+                        norm=Vec3f.forward())
 
         self.assertTrue(ray.intersects(plane))
 
     def test_ray_plane_no_intersection(self):
-        ray = Ray3D(origin=Vec3f([0, 0, -1]),
-                    direction=Vec3f([1, 0, 0]))
+        ray = Ray3D(origin=Vec3f.backwards(),
+                    direction=Vec3f.right())
 
         plane = Plane3D(origin=Vec3f.zero(),
-                        norm=Vec3f([0, 0, 1]))
+                        norm=Vec3f.forward())
 
         self.assertFalse(ray.intersects(plane))
 
-        ray = Ray3D(origin=Vec3f([0, 0, -1]),
-                    direction=Vec3f([-1, 0, 0]))
+        ray = Ray3D(origin=Vec3f.backwards(),
+                    direction=Vec3f.left())
 
         self.assertFalse(ray.intersects(plane))
 
     def test_ray_box_intersection(self):
         hit_rays = [
-            Ray3D(origin=Vec3f([1, 0, 0]), direction=Vec3f([-1, 0, 0])),
-            Ray3D(origin=Vec3f([0, 1, 0]), direction=Vec3f([0, -1, 0])),
-            Ray3D(origin=Vec3f([0, 0, 1]), direction=Vec3f([0, 0, -1])),
-            Ray3D(origin=Vec3f([-1, 0, 0]), direction=Vec3f([1, 0, 0])),
-            Ray3D(origin=Vec3f([0, -1, 0]), direction=Vec3f([0, 1, 0])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, 1])),
+            Ray3D(origin=Vec3f.right(), direction=Vec3f.left()),
+            Ray3D(origin=Vec3f.up(), direction=Vec3f.down()),
+            Ray3D(origin=Vec3f.forward(), direction=Vec3f.backwards()),
+            Ray3D(origin=Vec3f.left(), direction=Vec3f.right()),
+            Ray3D(origin=Vec3f.down(), direction=Vec3f.up()),
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f.forward()),
             Ray3D(origin=Vec3f([-1, -1, -1]), direction=Vec3f([1, 1, 1])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 1, 1]))
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f([0, 1, 1]))
         ]
 
         box = Box3D()
@@ -202,16 +202,16 @@ class TestRay(unittest.TestCase):
                                                                box.dimensions))
 
         miss_rays = [
-            Ray3D(origin=Vec3f([1, 0, 0]), direction=Vec3f([1, 0, 0])),
-            Ray3D(origin=Vec3f([0, 1, 0]), direction=Vec3f([0, 1, 0])),
-            Ray3D(origin=Vec3f([0, 0, 1]), direction=Vec3f([0, 0, 1])),
-            Ray3D(origin=Vec3f([-1, 0, 0]), direction=Vec3f([-1, 0, 0])),
-            Ray3D(origin=Vec3f([0, -1, 0]), direction=Vec3f([0, -1, 0])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, -1])),
+            Ray3D(origin=Vec3f.right(), direction=Vec3f.right()),
+            Ray3D(origin=Vec3f.up(), direction=Vec3f.up()),
+            Ray3D(origin=Vec3f.forward(), direction=Vec3f.forward()),
+            Ray3D(origin=Vec3f.left(), direction=Vec3f.left()),
+            Ray3D(origin=Vec3f.down(), direction=Vec3f.down()),
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f.backwards()),
             Ray3D(origin=Vec3f([-1, -1, -1]), direction=Vec3f([-1, -1, -1])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, -1, -1])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0.01, 0.01, -1])),
-            Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, -1])),
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f([0, -1, -1])),
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f([0.01, 0.01, -1])),
+            Ray3D(origin=Vec3f.backwards(), direction=Vec3f.backwards()),
         ]
 
         for ray in miss_rays:
@@ -223,7 +223,7 @@ class TestRay(unittest.TestCase):
                                 box.centroid, box.dimensions))
 
     def test_ray_intersection_thin_box(self):
-        ray = Ray3D(origin=Vec3f([0, 0, -1]), direction=Vec3f([0, 0, 1]))
+        ray = Ray3D(origin=Vec3f.backwards(), direction=Vec3f.forward())
         box = Box3D(vmin=Vec3f([-0.5, -0.5, 0]), vmax=Vec3f([0.5, 0.5, 0]))
 
         self.assertTrue(ray.intersects(box))
