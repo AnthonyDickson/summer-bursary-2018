@@ -157,6 +157,53 @@ class TestPixelGrid(unittest.TestCase):
                              "grid coords (row, col) [%s], instead got %s."
                              % (x, y, expected, actual))
 
+    def test_pixel_extents(self):
+        shape = (2, 2)
+
+        pg = PixelGrid(*shape)
+
+        expected_extents = [
+            [(Vec3f([-1, 1, 0]), Vec3f([0, 0, 0])), (Vec3f([0, 1, 0]), Vec3f([1, 0, 0]))],
+            [(Vec3f([-1, 0, 0]), Vec3f([0, -1, 0])), (Vec3f([0, 0, 0]), Vec3f([1, -1, 0]))],
+        ]
+
+        for row in range(pg.n_rows):
+            for col in range(pg.n_cols):
+                expected_min_extent, expected_max_extent = expected_extents[row][col]
+                actual_min_extent, actual_max_extent = pg.pixel_extents[row][col]
+
+                min_extents_matching = np.allclose(expected_min_extent, actual_min_extent)
+                max_extents_matching = np.allclose(expected_max_extent, actual_max_extent)
+
+                self.assertTrue(min_extents_matching and max_extents_matching,
+                                'Expected pixel at [%d, %d] (row, col) to '
+                                'have its extents at %s and %s, instead got '
+                                '%s and %s.' % (row, col,
+                                                expected_min_extent,
+                                                expected_max_extent,
+                                                actual_min_extent,
+                                                actual_max_extent))
+
+    def test_pixel_centers(self):
+        shape = (2, 2)
+
+        pg = PixelGrid(*shape)
+
+        expected_centers = [
+            [Vec3f([-0.5, 0.5, 0]), Vec3f([0.5, 0.5, 0])],
+            [Vec3f([-0.5, -0.5, 0]), Vec3f([0.5, -0.5, 0])]
+        ]
+
+        for row in range(pg.n_rows):
+            for col in range(pg.n_cols):
+                expected = expected_centers[row][col]
+                actual = pg.pixel_centers[row][col]
+
+                self.assertTrue(np.allclose(expected, actual),
+                                'Expected pixel at [%d, %d] (row, col) to '
+                                'have its center point at %s, instead got '
+                                '%s.' % (row, col, expected, actual))
+
     def test_hit_value(self):
         shape = (2, 2)
         values = [[0, 1],

@@ -44,6 +44,33 @@ class PixelGrid:
 
         self.pixel_size = pixel_size
 
+        self.pixel_centers = []
+        self.pixel_extents = []
+
+        self.calculate_pixel_centers_and_extents()
+
+    def calculate_pixel_centers_and_extents(self):
+        """For each pixel, calculate the center point and the extents (top left and bottom right corners)."""
+        for row in range(self.n_rows):
+            self.pixel_centers.append([])
+            self.pixel_extents.append([])
+
+            for col in range(self.n_cols):
+                pixel_x_min_extent = self.top_left.x + col * self.pixel_size
+                pixel_x_max_extent = pixel_x_min_extent + self.pixel_size
+                pixel_center_x = 0.5 * (pixel_x_min_extent + pixel_x_max_extent)
+
+                pixel_y_min_extent = self.top_left.y - row * self.pixel_size
+                pixel_y_max_extent = pixel_y_min_extent - self.pixel_size
+                pixel_center_y = 0.5 * (pixel_y_min_extent + pixel_y_max_extent)
+
+                pixel_min_extent = Vec3f([pixel_x_min_extent, pixel_y_min_extent, self.z])
+                pixel_max_extent = Vec3f([pixel_x_max_extent, pixel_y_max_extent, self.z])
+                pixel_center = Vec3f([pixel_center_x, pixel_center_y, self.z])
+
+                self.pixel_centers[row].append(pixel_center)
+                self.pixel_extents[row].append((pixel_min_extent, pixel_max_extent))
+
     @property
     def shape(self):
         """Get the shape of the pixel grid.
