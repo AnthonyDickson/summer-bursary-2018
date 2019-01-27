@@ -1,7 +1,7 @@
 import numpy as np
 
 
-from raytracing import Box3D, Vec3f
+from raytracing import Box3D, Vec3f, Ray3D
 
 
 class PixelGrid:
@@ -36,11 +36,12 @@ class PixelGrid:
         self.bounding_box = Box3D(vmin=self.bottom_left, vmax=self.top_right)
 
         if pixel_values is not None:
-            self.pixels = np.array(pixel_values)
+            self.pixel_values = np.array(pixel_values)
 
-            assert self.pixels.shape == (n_rows, n_cols)
+            assert self.pixel_values.shape == (n_rows, n_cols)
         else:
-            self.pixels = np.zeros((n_rows, n_cols))
+            self.pixel_values = np.random.uniform(low=0.0, high=1.0,
+                                                  size=(n_rows, n_cols))
 
         self.pixel_size = pixel_size
 
@@ -78,7 +79,7 @@ class PixelGrid:
         Returns:
             A 2-tuple consisting of the grid height and width, in that order.
         """
-        return self.pixels.shape
+        return self.pixel_values.shape
 
     def hit_value(self, ray):
         """Find the value of the pixel that a given ray intersects with.
@@ -103,7 +104,7 @@ class PixelGrid:
         x, y, _ = intersection_point
         row, col = self.to_grid_coords(x, y)
 
-        return self.pixels[row, col]
+        return self.pixel_values[row, col]
 
     def to_grid_coords(self, x, y):
         """Convert world coordinates (only x and y) to grid coordinates (i.e. pixel array indices.
@@ -142,24 +143,69 @@ class PixelGrid:
         Returns:
             the item in the pixel array at the location [y, x].
         """
-        return self.pixels.__getitem__(item)
+        return self.pixel_values.__getitem__(item)
 
     def __str__(self):
-        return str(self.pixels)
+        return str(self.pixel_values)
 
 
 class RayTracerThing:
     """This thing does some stuff."""
 
-    def __init__(self, input_shape, output_shape):
+    def __init__(self, input_shape, output_shape, n_layers=0,
+                 hidden_layer_shape=None):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
             input_shape: The shape of the input image.
             output_shape: The shape of the detector array.
+            n_layers: The number of 'hidden' layers to add.
+            hidden_layer_shape: The shape of the 'hidden' layers. If set to
+                                None, `hidden_layer_shape` defaults to
+                                `input_shape`.
         """
+        if hidden_layer_shape is None:
+            hidden_layer_shape = input_shape
+
         self.input_shape = input_shape
+        self.layer_shape = hidden_layer_shape
         self.output_shape = output_shape
+        self.n_layers = n_layers
+
+        self.output_layer = PixelGrid(*output_shape, z=0)
+        self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
+                              for n in range(n_layers)]
+        self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
+
+        self.layer_after_input = self.hidden_layers[0] if len(self.hidden_layers) > 0 else self.input_layer
+
+    def enable_full_transparency(self):
+        """Enable full transparency on each hidden layer.
+
+        Set each pixel in every hidden layer to have a value of 1, meaning that
+        any light that passes through the hidden layers is unhindered and does
+        not lose any intensity.
+
+        Mainly useful for testing.
+        """
+        ones = np.ones(self.layer_shape)
+
+        for layer in self.hidden_layers:
+            layer.pixel_values = ones
+
+    def enable_full_opacity(self):
+        """Enable full opacity on each hidden layer.
+
+        Set each pixel in every hidden layer to have a value of 0, meaning that
+        any light that tries to pass through the hidden layers is completely
+        blocked.
+
+        Mainly useful for testing.
+        """
+        zeros = np.zeros(self.layer_shape)
+
+        for layer in self.hidden_layers:
+            layer.pixel_values = zeros
 
     def forward(self, X):
         """Perform a 'forward pass' of the ray tracer thing.
@@ -177,4 +223,23 @@ class RayTracerThing:
                                             "shape %s, instead got %s." \
                                             % (self.input_shape, X.shape)
 
+        self.input_layer.pixel_values = X
         output = np.zeros(shape=self.output_shape)
+
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                origin = self.output_layer.pixel_centers[row][col]
+
+                for rows in self.layer_after_input.pixel_centers:
+                    for target in rows:
+                        direction = target - origin
+                        ray = Ray3D(origin, direction)
+                        pixel_value = self.input_layer.hit_value(ray)
+
+                        if pixel_value is not None:
+                            for layer in reversed(self.hidden_layers):
+                                pixel_value *= layer.hit_value(ray)
+
+                            output[row][col] += pixel_value
+
+        return output

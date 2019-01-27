@@ -6,25 +6,6 @@ from raytracerthing import RayTracerThing, PixelGrid
 from raytracing import Vec3f, Ray3D
 
 
-class TestRaytracerThing(unittest.TestCase):
-
-    def test_output(self):
-        image = np.array([[0, 1],
-                          [2, 3]])
-
-        expected = np.array([[6, 6],
-                             [6, 6]])
-
-        the_thing = RayTracerThing(input_shape=(2, 2),
-                                   output_shape=(2, 2))
-
-        actual = the_thing.forward(image)
-
-        self.assertTrue(np.array_equal(expected, actual),
-                        "Expected an output of %s, instead got %s."
-                        % (expected, actual))
-
-
 class TestPixelGrid(unittest.TestCase):
 
     def test_init(self):
@@ -35,7 +16,7 @@ class TestPixelGrid(unittest.TestCase):
         pg = PixelGrid(*shape, pixel_values=values)
 
         self.assertEqual(shape, pg.shape)
-        self.assertTrue(np.array_equal(values, pg.pixels))
+        self.assertTrue(np.array_equal(values, pg.pixel_values))
         self.assertTrue(np.array_equal(Vec3f.zero(), pg.origin))
         self.assertTrue(np.array_equal(Vec3f([-1, -1, 0]), pg.bottom_left))
         self.assertTrue(np.array_equal(Vec3f([1, 1, 0]), pg.top_right))
@@ -228,6 +209,62 @@ class TestPixelGrid(unittest.TestCase):
                                  "and pointing in the direction %s.)"
                                  % (row, col, expected, actual, ray.origin,
                                     ray.direction))
+
+
+class TestRaytracerThing(unittest.TestCase):
+
+    def test_output_no_hidden_layers(self):
+        image = np.array([[0, 1],
+                          [2, 3]])
+
+        expected = np.array([[6, 6],
+                             [6, 6]])
+
+        the_thing = RayTracerThing(input_shape=(2, 2),
+                                   output_shape=(2, 2),
+                                   n_layers=0)
+        the_thing.enable_full_transparency()
+
+        actual = the_thing.forward(image)
+
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected an output of %s, instead got %s."
+                        % (expected, actual))
+
+    def test_output_full_opacity(self):
+        image = np.array([[0, 1],
+                          [2, 3]])
+
+        expected = np.array([[0, 0],
+                             [0, 0]])
+
+        the_thing = RayTracerThing(input_shape=(2, 2),
+                                   output_shape=(2, 2),
+                                   n_layers=1)
+        the_thing.enable_full_opacity()
+
+        actual = the_thing.forward(image)
+
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected an output of %s, instead got %s."
+                        % (expected, actual))
+
+    def test_output_one_hidden_layer(self):
+        image = np.array([[0, 1],
+                          [2, 3]])
+
+        expected = image
+
+        the_thing = RayTracerThing(input_shape=(2, 2),
+                                   output_shape=(2, 2),
+                                   n_layers=1)
+        the_thing.enable_full_transparency()
+
+        actual = the_thing.forward(image)
+
+        self.assertTrue(np.array_equal(expected, actual),
+                        "Expected an output of %s, instead got %s."
+                        % (expected, actual))
 
 
 if __name__ == '__main__':
