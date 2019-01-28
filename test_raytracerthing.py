@@ -253,7 +253,8 @@ class TestRaytracerThing(unittest.TestCase):
         image = np.array([[0, 1],
                           [2, 3]])
 
-        expected = image
+        expected = np.array([[6, 6],
+                             [6, 6]])
 
         the_thing = RayTracerThing(input_shape=(2, 2),
                                    output_shape=(2, 2),

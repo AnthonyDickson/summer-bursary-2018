@@ -88,9 +88,8 @@ class PixelGrid:
             ray: The ray to intersect the grid with.
 
 
-        Returns:
-            the value of the pixel the ray intersects if such a pixel exists,
-            otherwise returns None if there is no intersection.
+        Returns: the value of the pixel the ray intersects if such a pixel
+                 exists, otherwise returns None if there is no intersection.
         """
         intersection_t = self.bounding_box.find_intersection(ray)
 
@@ -107,19 +106,20 @@ class PixelGrid:
         return self.pixel_values[row, col]
 
     def to_grid_coords(self, x, y):
-        """Convert world coordinates (only x and y) to grid coordinates (i.e. pixel array indices.
+        """Convert world coordinates (only x and y) to grid coordinates
+        (i.e. pixel array indices.
 
         It assumed that the point is contained within the pixel grid.
 
-        Any points that coincide with the border between two pixels will cause the returned column to be that of the
-        pixel located to the right
+        Any points that coincide with the border between two pixels will cause
+        the returned column to be that of the pixel located to the right.
 
         Arguments:
             x: The x coordinate to convert.
             y: The y coordinate to convert.
 
-        Returns:
-            A 2-tuple that contains the row and column position of the pixel in the pixel grid.
+        Returns: A 2-tuple that contains the row and column position of the
+        pixel in the pixel grid.
         """
         # align bottom edge of grid to y=0 and flip y so that it increases in the same direction as the grid rows
         # (i.e. so that y increases in the negative y direction, starting from the top of the grid
@@ -140,8 +140,7 @@ class PixelGrid:
         """
         Get the value of a pixel in the pixel grid.
 
-        Returns:
-            the item in the pixel array at the location [y, x].
+        Returns: the item in the pixel array at the location [y, x].
         """
         return self.pixel_values.__getitem__(item)
 
@@ -177,7 +176,53 @@ class RayTracerThing:
                               for n in range(n_layers)]
         self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
 
-        self.layer_after_input = self.hidden_layers[0] if len(self.hidden_layers) > 0 else self.input_layer
+        self.ray_grid_intersections = self._find_ray_grid_intersections()
+
+    def _find_ray_grid_intersections(self):
+        """Find the grid coordinates for where each ray cast during a forward
+        pass would intersect each of the hidden layers.
+
+        For each pixel in the output layer (detector array), a ray is cast to
+        each pixel in the input layer. For each hidden layer (a pixel grid in
+        between the input and output layers), the grid coordinates (row, col)
+        are recorded for where the ray intersects that layer. This is
+        essentially pre-calculating the ray paths.
+
+        Returns: A 5-D array where each element is a grid coordinate (row, col)
+                 for where a ray originating at the pixel at (*m, n*) cast to
+                 the pixel at (*i, j*) intersects the hidden layer *l*. The
+                 array is of the dimensions (M, N, I, J, L), where M and N are
+                 the row and column components of the output shape, I and J the
+                 row and column components of the input shape, and L is the
+                 number of hidden layers.
+        """
+        ray_grid_intersections = []
+
+        for row in range(self.output_layer.n_rows):
+            ray_grid_intersections.append([])
+
+            for col in range(self.output_layer.n_cols):
+                origin = self.output_layer.pixel_centers[row][col]
+
+                ray_grid_intersections[row].append([])
+
+                for input_row in self.input_layer.pixel_centers:
+                    ray_grid_intersections[row][col].append([])
+
+                    for target in input_row:
+                        ray_grid_intersections[row][col][-1].append([])
+
+                        direction = target - origin
+                        ray = Ray3D(origin, direction)
+
+                        for layer in self.hidden_layers:
+                            intersection_t = layer.bounding_box.find_intersection(ray)
+                            intersection_point = ray.get_point(intersection_t[0])
+                            grid_coords = layer.to_grid_coords(intersection_point.x, intersection_point.y)
+
+                            ray_grid_intersections[row][col][-1][-1] += [grid_coords]
+
+        return ray_grid_intersections
 
     def enable_full_transparency(self):
         """Enable full transparency on each hidden layer.
@@ -228,18 +273,15 @@ class RayTracerThing:
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
-                origin = self.output_layer.pixel_centers[row][col]
+                for input_row in range(self.input_layer.n_rows):
+                    for input_col in range(self.input_layer.n_cols):
+                        pixel_value = X[input_row][input_col]
+                        intersection_grid_coords = self.ray_grid_intersections[row][col][input_row][input_col]
 
-                for rows in self.layer_after_input.pixel_centers:
-                    for target in rows:
-                        direction = target - origin
-                        ray = Ray3D(origin, direction)
-                        pixel_value = self.input_layer.hit_value(ray)
+                        for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
+                            coeff = layer.pixel_values[grid_row][grid_col]
+                            pixel_value = coeff * pixel_value
 
-                        if pixel_value is not None:
-                            for layer in reversed(self.hidden_layers):
-                                pixel_value *= layer.hit_value(ray)
-
-                            output[row][col] += pixel_value
+                        output[row][col] += pixel_value
 
         return output
