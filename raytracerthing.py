@@ -215,12 +215,20 @@ class RayTracerThing:
                         direction = target - origin
                         ray = Ray3D(origin, direction)
 
+                        intersections = []
+
                         for layer in self.hidden_layers:
                             intersection_t = layer.bounding_box.find_intersection(ray)
+
+                            if intersection_t is None:
+                                break
+
                             intersection_point = ray.get_point(intersection_t[0])
                             grid_coords = layer.to_grid_coords(intersection_point.x, intersection_point.y)
 
-                            ray_grid_intersections[row][col][-1][-1] += [grid_coords]
+                            intersections += [grid_coords]
+                        else:  # Ray intersects all layers between input and output layers.
+                            ray_grid_intersections[row][col][-1][-1] = intersections
 
         return ray_grid_intersections
 
@@ -275,12 +283,16 @@ class RayTracerThing:
             for col in range(self.output_layer.n_cols):
                 for input_row in range(self.input_layer.n_rows):
                     for input_col in range(self.input_layer.n_cols):
-                        pixel_value = X[input_row][input_col]
                         intersection_grid_coords = self.ray_grid_intersections[row][col][input_row][input_col]
 
+                        if len(intersection_grid_coords) == 0 and len(self.hidden_layers) != 0:
+                            continue
+
+                        pixel_value = X[input_row][input_col]
+
                         for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
-                            coeff = layer.pixel_values[grid_row][grid_col]
-                            pixel_value = coeff * pixel_value
+                            transparency = layer.pixel_values[grid_row][grid_col]
+                            pixel_value = transparency * pixel_value
 
                         output[row][col] += pixel_value
 
