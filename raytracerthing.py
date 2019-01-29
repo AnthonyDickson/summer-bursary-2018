@@ -148,11 +148,39 @@ class PixelGrid:
         return str(self.pixel_values)
 
 
+class Activations:
+    """Implements a couple of activation functions."""
+
+    @staticmethod
+    def identity(x):
+        """Apply the identity activation function.
+
+        Arguments:
+            x: the input.
+
+        Returns: the input without any modifications.
+        """
+        return x
+
+    @staticmethod
+    def softmax(z):
+        """Apply the softmax activation function to the input.
+
+        Arguments:
+            z: the input.
+
+        Returns: the input transformed with the softmax function.
+        """
+        exp_z = np.exp(z)
+
+        return exp_z / np.sum(exp_z, axis=0)
+
+
 class RayTracerThing:
     """This thing does some stuff."""
 
     def __init__(self, input_shape, output_shape, n_layers=0,
-                 hidden_layer_shape=None):
+                 hidden_layer_shape=None, activation_func=Activations.identity):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
@@ -177,6 +205,7 @@ class RayTracerThing:
         self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
 
         self.ray_grid_intersections = self._find_ray_grid_intersections()
+        self.activation = activation_func
 
     def _find_ray_grid_intersections(self):
         """Find the grid coordinates for where each ray cast during a forward
@@ -260,11 +289,11 @@ class RayTracerThing:
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
 
-    def forward(self, X):
+    def forward(self, x):
         """Perform a 'forward pass' of the ray tracer thing.
 
         Arguments:
-            X: The input image, must be the same shape as `input_shape`.
+            x: The input image, must be the same shape as `input_shape`.
 
         Returns:
             2-D array of values that is the same shape as `output_shape`.
@@ -272,11 +301,11 @@ class RayTracerThing:
         Raises:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
-        assert X.shape == self.input_shape, "Expected input to be of the " \
+        assert x.shape == self.input_shape, "Expected input to be of the " \
                                             "shape %s, instead got %s." \
-                                            % (self.input_shape, X.shape)
+                                            % (self.input_shape, x.shape)
 
-        self.input_layer.pixel_values = X
+        self.input_layer.pixel_values = x
         output = np.zeros(shape=self.output_shape)
 
         for row in range(self.output_layer.n_rows):
@@ -288,7 +317,7 @@ class RayTracerThing:
                         if len(intersection_grid_coords) == 0 and len(self.hidden_layers) != 0:
                             continue
 
-                        pixel_value = X[input_row][input_col]
+                        pixel_value = x[input_row][input_col]
 
                         for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
                             transparency = layer.pixel_values[grid_row][grid_col]
@@ -296,4 +325,4 @@ class RayTracerThing:
 
                         output[row][col] += pixel_value
 
-        return output
+        return self.activation(output)
