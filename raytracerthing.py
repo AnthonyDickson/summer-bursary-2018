@@ -316,7 +316,7 @@ class RayTracerThing:
                                             "shape %s, instead got %s." \
                                             % (self.input_shape, x.shape)
 
-        x = tf.cast(x, tf.float32)
+        # x = tf.cast(x, tf.float32)
 
         ray_values = []
 
