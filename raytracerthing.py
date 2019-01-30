@@ -1,7 +1,9 @@
 import numpy as np
-
+import tensorflow as tf
 
 from raytracing import Box3D, Vec3f, Ray3D
+
+tf.enable_eager_execution()
 
 
 class PixelGrid:
@@ -42,6 +44,10 @@ class PixelGrid:
         else:
             self.pixel_values = np.random.uniform(low=0.0, high=1.0,
                                                   size=(n_rows, n_cols))
+        #
+        # for row in range(self.pixel_values.shape[0]):
+        #     for col in range(self.pixel_values.shape[1]):
+        #         pixel_values[row][col] = tf.
 
         self.pixel_size = pixel_size
 
@@ -171,9 +177,9 @@ class Activations:
 
         Returns: the input transformed with the softmax function.
         """
-        exp_z = np.exp(z)
+        exp_z = tf.exp(z)
 
-        return exp_z / np.sum(exp_z, axis=0)
+        return exp_z / tf.reduce_sum(exp_z, axis=0)
 
 
 class RayTracerThing:
@@ -321,8 +327,8 @@ class RayTracerThing:
 
                         for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
                             transparency = layer.pixel_values[grid_row][grid_col]
-                            pixel_value = transparency * pixel_value
+                            pixel_value = tf.multiply(transparency, pixel_value)
 
-                        output[row][col] += pixel_value
+                        output[row][col] = tf.add(output[row][col], pixel_value)
 
         return self.activation(output)
