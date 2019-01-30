@@ -169,7 +169,7 @@ class Activations:
         return x
 
     @staticmethod
-    def softmax(z):
+    def softmax(x):
         """Apply the softmax activation function to the input.
 
         Arguments:
@@ -177,21 +177,25 @@ class Activations:
 
         Returns: the input transformed with the softmax function.
         """
-        exp_z = tf.exp(z)
+        z = tf.exp(x)
 
-        return exp_z / tf.reduce_sum(exp_z, axis=0)
+        return z / tf.reduce_sum(z, axis=0)
+
+    @staticmethod
+    def sigmoid(x):
+        z = tf.exp(x)
+        return z / (z + 1)
 
 
 class RayTracerThing:
     """This thing does some stuff."""
 
-    def __init__(self, input_shape, output_shape, n_layers=0,
+    def __init__(self, input_shape, n_layers=0,
                  hidden_layer_shape=None, activation_func=Activations.identity):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
             input_shape: The shape of the input image.
-            output_shape: The shape of the detector array.
             n_layers: The number of 'hidden' layers to add.
             hidden_layer_shape: The shape of the 'hidden' layers. If set to
                                 None, `hidden_layer_shape` defaults to
@@ -202,10 +206,10 @@ class RayTracerThing:
 
         self.input_shape = input_shape
         self.layer_shape = hidden_layer_shape
-        self.output_shape = output_shape
+        self.output_shape = (1, 1)
         self.n_layers = n_layers
 
-        self.output_layer = PixelGrid(*output_shape, z=0)
+        self.output_layer = PixelGrid(*self.output_shape, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
                               for n in range(n_layers)]
         self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
@@ -295,6 +299,7 @@ class RayTracerThing:
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
 
+    @tf.contrib.eager.defun
     def forward(self, x):
         """Perform a 'forward pass' of the ray tracer thing.
 
@@ -311,24 +316,78 @@ class RayTracerThing:
                                             "shape %s, instead got %s." \
                                             % (self.input_shape, x.shape)
 
-        self.input_layer.pixel_values = x
-        output = np.zeros(shape=self.output_shape)
+        x = tf.cast(x, tf.float32)
 
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                for input_row in range(self.input_layer.n_rows):
-                    for input_col in range(self.input_layer.n_cols):
-                        intersection_grid_coords = self.ray_grid_intersections[row][col][input_row][input_col]
+        ray_values = []
 
-                        if len(intersection_grid_coords) == 0 and len(self.hidden_layers) != 0:
-                            continue
+        for input_row in range(self.input_layer.n_rows):
+            for input_col in range(self.input_layer.n_cols):
+                transparency_values = []
+                intersection_grid_coords = self.ray_grid_intersections[0][0][input_row][input_col]
 
-                        pixel_value = x[input_row][input_col]
+                for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
+                    transparency = layer.pixel_values[grid_row][grid_col]
+                    transparency_values.append(transparency)
 
-                        for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
-                            transparency = layer.pixel_values[grid_row][grid_col]
-                            pixel_value = tf.multiply(transparency, pixel_value)
+                transparency = tf.reduce_prod(transparency_values)
+                ray_value = tf.multiply(transparency, x[input_row][input_col])
 
-                        output[row][col] = tf.add(output[row][col], pixel_value)
+                ray_values.append(ray_value)
+
+        output = tf.reduce_sum(ray_values)
 
         return self.activation(output)
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import seaborn as sns
+    from sklearn.datasets import load_digits
+
+    np.random.seed(42)
+
+    digits = load_digits()
+    digits.keys()
+
+    y = digits['target']
+
+    X = digits['images']
+    X = X[y < 2]
+    X = X / X.max()
+    N = X.shape[0]
+    image_shape = X.shape[1:]
+
+    print(N, image_shape)
+
+    y = y[y < 2]
+
+    print(y[:5])
+
+    layer_shape = image_shape
+
+    clf = RayTracerThing(input_shape=image_shape,
+                         hidden_layer_shape=layer_shape, n_layers=3,
+                         activation_func=Activations.sigmoid)
+
+    outputs = []
+
+    for i, image in enumerate(X):
+        print('\rImage %d of %d' % (i + 1, N), end='')
+        outputs.append(clf.forward(image))
+
+    print()
+
+    fig, axes = plt.subplots(5, 2, figsize=(9, 15))
+    axes = axes.ravel()
+
+    for ax, image, expected, actual in zip(axes, X[:10], y[:10], outputs[:10]):
+        sns.heatmap(image, vmin=0.0, vmax=1.0, cmap='gray', ax=ax)
+        ax.set_axis_off()
+
+        actual = 0 if actual < 0.5 else 1
+
+        color = 'green' if expected == actual else 'red'
+        ax.set_title('Predicted %d' % actual, color=color)
+
+    plt.show()

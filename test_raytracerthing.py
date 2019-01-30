@@ -217,55 +217,46 @@ class TestRaytracerThing(unittest.TestCase):
         image = np.array([[0, 1],
                           [2, 3]])
 
-        expected = np.array([[6, 6],
-                             [6, 6]])
+        expected = 6
 
-        the_thing = RayTracerThing(input_shape=(2, 2),
-                                   output_shape=(2, 2),
-                                   n_layers=0)
+        the_thing = RayTracerThing(input_shape=(2, 2), n_layers=0)
         the_thing.enable_full_transparency()
 
-        actual = the_thing.forward(image)
+        actual = the_thing.forward(image).numpy()
 
-        self.assertTrue(np.array_equal(expected, actual),
-                        "Expected an output of %s, instead got %s."
-                        % (expected, actual))
+        self.assertEqual(expected, actual,
+                         "Expected an output of %s, instead got %s."
+                         % (expected, actual))
 
     def test_output_full_opacity(self):
         image = np.array([[0, 1],
                           [2, 3]])
 
-        expected = np.array([[0, 0],
-                             [0, 0]])
+        expected = 0
 
-        the_thing = RayTracerThing(input_shape=(2, 2),
-                                   output_shape=(2, 2),
-                                   n_layers=1)
+        the_thing = RayTracerThing(input_shape=(2, 2), n_layers=1)
         the_thing.enable_full_opacity()
 
-        actual = the_thing.forward(image)
+        actual = the_thing.forward(image).numpy()
 
-        self.assertTrue(np.array_equal(expected, actual),
-                        "Expected an output of %s, instead got %s."
-                        % (expected, actual))
+        self.assertEqual(expected, actual,
+                         "Expected an output of %s, instead got %s."
+                         % (expected, actual))
 
     def test_output_one_hidden_layer(self):
         image = np.array([[0, 1],
                           [2, 3]])
 
-        expected = np.array([[6, 6],
-                             [6, 6]])
+        expected = 6
 
-        the_thing = RayTracerThing(input_shape=(2, 2),
-                                   output_shape=(2, 2),
-                                   n_layers=1)
+        the_thing = RayTracerThing(input_shape=(2, 2), n_layers=1)
         the_thing.enable_full_transparency()
 
-        actual = the_thing.forward(image)
+        actual = the_thing.forward(image).numpy()
 
-        self.assertTrue(np.array_equal(expected, actual),
-                        "Expected an output of %s, instead got %s."
-                        % (expected, actual))
+        self.assertEqual(expected, actual,
+                         "Expected an output of %s, instead got %s."
+                         % (expected, actual))
 
 
 if __name__ == '__main__':
