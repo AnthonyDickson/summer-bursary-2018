@@ -1,10 +1,9 @@
 import numpy as np
-import tensorflow as tf
+import torch
 
 from raytracing import Box3D, Vec3f, Ray3D
 
-tf.enable_eager_execution()
-
+torch.set_default_dtype(torch.float64)
 
 class PixelGrid:
     """A 2D grid of pixels in 3D space."""
@@ -44,11 +43,10 @@ class PixelGrid:
         else:
             self.pixel_values = np.random.uniform(low=0.0, high=1.0,
                                                   size=(n_rows, n_cols))
-        #
-        # for row in range(self.pixel_values.shape[0]):
-        #     for col in range(self.pixel_values.shape[1]):
-        #         pixel_values[row][col] = tf.
-
+        
+        self.pixel_values = torch.tensor(self.pixel_values)
+        self.pixel_values = torch.autograd.Variable(self.pixel_values, requires_grad=True)
+        
         self.pixel_size = pixel_size
 
         self.pixel_centers = []
@@ -177,13 +175,13 @@ class Activations:
 
         Returns: the input transformed with the softmax function.
         """
-        z = tf.exp(x)
+        z = torch.exp(x)
 
-        return z / tf.reduce_sum(z, axis=0)
+        return z / torch.sum(z, axis=0)
 
     @staticmethod
     def sigmoid(x):
-        z = tf.exp(x)
+        z = torch.exp(x)
         return z / (z + 1)
 
 
@@ -214,6 +212,7 @@ class RayTracerThing:
                               for n in range(n_layers)]
         self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
 
+        self.W = [torch.ones(input_shape) for _ in range(n_layers)]
         self.ray_grid_intersections = self._find_ray_grid_intersections()
         self.activation = activation_func
 
@@ -244,12 +243,18 @@ class RayTracerThing:
                 origin = self.output_layer.pixel_centers[row][col]
 
                 ray_grid_intersections[row].append([])
-
-                for input_row in self.input_layer.pixel_centers:
+                
+                for input_row in range(self.input_layer.n_rows):
                     ray_grid_intersections[row][col].append([])
+                    
+                    for input_col in range(self.input_layer.n_cols):
+                        ray_grid_intersections[row][col][input_row].append([])
+                        target = self.input_layer.pixel_centers[input_row][input_col]
+#                 for input_row in self.input_layer.pixel_centers:
+#                     ray_grid_intersections[row][col].append([])
 
-                    for target in input_row:
-                        ray_grid_intersections[row][col][-1].append([])
+#                     for target in input_row:
+#                         ray_grid_intersections[row][col][-1].append([])
 
                         direction = target - origin
                         ray = Ray3D(origin, direction)
@@ -268,6 +273,12 @@ class RayTracerThing:
                             intersections += [grid_coords]
                         else:  # Ray intersects all layers between input and output layers.
                             ray_grid_intersections[row][col][-1][-1] = intersections
+                            
+                            for i in range(self.n_layers):                            
+                                self.W[i][input_row, input_col] = self.hidden_layers[i].pixel_values[intersections[i][0], intersections[i][1]]
+                            
+        for w in self.W:
+            w.retain_grad()
 
         return ray_grid_intersections
 
@@ -299,7 +310,6 @@ class RayTracerThing:
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
 
-    @tf.contrib.eager.defun
     def forward(self, x):
         """Perform a 'forward pass' of the ray tracer thing.
 
@@ -315,26 +325,13 @@ class RayTracerThing:
         assert x.shape == self.input_shape, "Expected input to be of the " \
                                             "shape %s, instead got %s." \
                                             % (self.input_shape, x.shape)
-
-        # x = tf.cast(x, tf.float32)
-
-        ray_values = []
-
-        for input_row in range(self.input_layer.n_rows):
-            for input_col in range(self.input_layer.n_cols):
-                transparency_values = []
-                intersection_grid_coords = self.ray_grid_intersections[0][0][input_row][input_col]
-
-                for layer, (grid_row, grid_col) in zip(self.hidden_layers, intersection_grid_coords):
-                    transparency = layer.pixel_values[grid_row][grid_col]
-                    transparency_values.append(transparency)
-
-                transparency = tf.reduce_prod(transparency_values)
-                ray_value = tf.multiply(transparency, x[input_row][input_col])
-
-                ray_values.append(ray_value)
-
-        output = tf.reduce_sum(ray_values)
+        
+        output = torch.tensor(x)
+        
+        for w in self.W:
+            output = output * w 
+        
+        output = torch.sum(output)#, (1, 2))
 
         return self.activation(output)
 
