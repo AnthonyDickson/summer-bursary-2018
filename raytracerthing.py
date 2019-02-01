@@ -44,9 +44,6 @@ class PixelGrid:
             self.pixel_values = np.random.uniform(low=0.0, high=1.0,
                                                   size=(n_rows, n_cols))
         
-        self.pixel_values = torch.tensor(self.pixel_values)
-        self.pixel_values = torch.autograd.Variable(self.pixel_values, requires_grad=True)
-        
         self.pixel_size = pixel_size
 
         self.pixel_centers = []
@@ -206,13 +203,15 @@ class RayTracerThing:
         self.layer_shape = hidden_layer_shape
         self.output_shape = (1, 1)
         self.n_layers = n_layers
-
-        self.output_layer = PixelGrid(*self.output_shape, z=0)
+        
+        
+        self.input_layer = PixelGrid(*input_shape, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
                               for n in range(n_layers)]
-        self.input_layer = PixelGrid(*input_shape, z=n_layers + 1)
+        self.output_layer = PixelGrid(*self.output_shape, z=n_layers + 1)
 
         self.W = [torch.ones(input_shape) for _ in range(n_layers)]
+        self.grid_W_map = [{} for _ in range(n_layers)]
         self.ray_grid_intersections = self._find_ray_grid_intersections()
         self.activation = activation_func
 
@@ -250,11 +249,6 @@ class RayTracerThing:
                     for input_col in range(self.input_layer.n_cols):
                         ray_grid_intersections[row][col][input_row].append([])
                         target = self.input_layer.pixel_centers[input_row][input_col]
-#                 for input_row in self.input_layer.pixel_centers:
-#                     ray_grid_intersections[row][col].append([])
-
-#                     for target in input_row:
-#                         ray_grid_intersections[row][col][-1].append([])
 
                         direction = target - origin
                         ray = Ray3D(origin, direction)
@@ -274,10 +268,18 @@ class RayTracerThing:
                         else:  # Ray intersects all layers between input and output layers.
                             ray_grid_intersections[row][col][-1][-1] = intersections
                             
+                            # TODO: Refactor this code.
                             for i in range(self.n_layers):                            
                                 self.W[i][input_row, input_col] = self.hidden_layers[i].pixel_values[intersections[i][0], intersections[i][1]]
+                                try:
+                                    if input_row not in self.grid_W_map[i][intersections[i]]['row_slice']:
+                                        self.grid_W_map[i][intersections[i]]['row_slice'].append(input_row)
+                                        self.grid_W_map[i][intersections[i]]['col_slice'].append(input_col)
+                                except KeyError:
+                                    self.grid_W_map[i][intersections[i]] = {'row_slice': [input_row], 'col_slice': [input_col]}
                             
         for w in self.W:
+            w.requires_grad_(True)
             w.retain_grad()
 
         return ray_grid_intersections
@@ -295,6 +297,8 @@ class RayTracerThing:
 
         for layer in self.hidden_layers:
             layer.pixel_values = ones
+            
+        self.ray_grid_intersections = self._find_ray_grid_intersections()
 
     def enable_full_opacity(self):
         """Enable full opacity on each hidden layer.
@@ -309,6 +313,8 @@ class RayTracerThing:
 
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
+            
+        self.ray_grid_intersections = self._find_ray_grid_intersections()
 
     def forward(self, x):
         """Perform a 'forward pass' of the ray tracer thing.
