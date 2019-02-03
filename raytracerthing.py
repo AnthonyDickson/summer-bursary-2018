@@ -211,6 +211,15 @@ class RayTracerThing:
                               for n in range(n_layers)]
         self.output_layer = PixelGrid(*self.output_shape, z=n_layers + 1)
 
+        self._setup()
+
+    def _setup(self):
+        """Prepare the model for training.
+
+        This should be called before training and if the pixel values are
+        modified manually to ensure that the weights and pixel values are in
+        sync.
+        """
         self.ray_grid_intersections = self._find_ray_grid_intersections()
         self.W = self._get_W()
         self.grid_W_map = self._get_grid_W_map()
@@ -340,7 +349,7 @@ class RayTracerThing:
         for layer in self.hidden_layers:
             layer.pixel_values = ones
 
-        self.ray_grid_intersections = self._find_ray_grid_intersections()
+        self._setup()
 
     def enable_full_opacity(self):
         """Enable full opacity on each hidden layer.
@@ -356,7 +365,7 @@ class RayTracerThing:
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
 
-        self.ray_grid_intersections = self._find_ray_grid_intersections()
+        self._setup()
 
     def forward(self, x):
         """Perform a 'forward pass' of the ray tracer thing.
