@@ -5,6 +5,7 @@ from raytracing import Box3D, Vec3f, Ray3D
 
 torch.set_default_dtype(torch.float64)
 
+
 class PixelGrid:
     """A 2D grid of pixels in 3D space."""
 
@@ -43,7 +44,7 @@ class PixelGrid:
         else:
             self.pixel_values = np.random.uniform(low=0.0, high=1.0,
                                                   size=(n_rows, n_cols))
-        
+
         self.pixel_size = pixel_size
 
         self.pixel_centers = []
@@ -203,17 +204,16 @@ class RayTracerThing:
         self.layer_shape = hidden_layer_shape
         self.output_shape = (1, 1)
         self.n_layers = n_layers
-        
-        
+        self.activation = activation_func
+
         self.input_layer = PixelGrid(*input_shape, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
                               for n in range(n_layers)]
         self.output_layer = PixelGrid(*self.output_shape, z=n_layers + 1)
 
-        self.W = [torch.ones(input_shape) for _ in range(n_layers)]
-        self.grid_W_map = [{} for _ in range(n_layers)]
         self.ray_grid_intersections = self._find_ray_grid_intersections()
-        self.activation = activation_func
+        self.W = self._get_W()
+        self.grid_W_map = self._get_grid_W_map()
 
     def _find_ray_grid_intersections(self):
         """Find the grid coordinates for where each ray cast during a forward
@@ -242,10 +242,10 @@ class RayTracerThing:
                 origin = self.output_layer.pixel_centers[row][col]
 
                 ray_grid_intersections[row].append([])
-                
+
                 for input_row in range(self.input_layer.n_rows):
                     ray_grid_intersections[row][col].append([])
-                    
+
                     for input_col in range(self.input_layer.n_cols):
                         ray_grid_intersections[row][col][input_row].append([])
                         target = self.input_layer.pixel_centers[input_row][input_col]
@@ -267,22 +267,64 @@ class RayTracerThing:
                             intersections += [grid_coords]
                         else:  # Ray intersects all layers between input and output layers.
                             ray_grid_intersections[row][col][-1][-1] = intersections
-                            
-                            # TODO: Refactor this code.
-                            for i in range(self.n_layers):                            
-                                self.W[i][input_row, input_col] = self.hidden_layers[i].pixel_values[intersections[i][0], intersections[i][1]]
-                                try:
-                                    if input_row not in self.grid_W_map[i][intersections[i]]['row_slice']:
-                                        self.grid_W_map[i][intersections[i]]['row_slice'].append(input_row)
-                                        self.grid_W_map[i][intersections[i]]['col_slice'].append(input_col)
-                                except KeyError:
-                                    self.grid_W_map[i][intersections[i]] = {'row_slice': [input_row], 'col_slice': [input_col]}
-                            
-        for w in self.W:
+
+        return ray_grid_intersections
+
+    def _get_W(self):
+        """Generate the weight matrices based on the pixel values of the hidden layers and their ray intersections.
+
+        Returns: A list of weight matrices that is the same shape as the input.
+        """
+        W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
+
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                for input_row in range(self.input_layer.n_rows):
+                    for input_col in range(self.input_layer.n_cols):
+                        intersections = self.ray_grid_intersections[row][col][input_row][input_col]
+
+                        for layer in range(self.n_layers):
+                            W[layer][input_row, input_col] = self.hidden_layers[layer].pixel_values[
+                                intersections[layer]]
+
+        for w in W:
             w.requires_grad_(True)
             w.retain_grad()
 
-        return ray_grid_intersections
+        return W
+
+    def _get_grid_W_map(self):
+        """Generate a mapping between the pixels in the hidden layers and the elements in the weight matrices.
+
+        Some rays intersect the same pixel as other rays. This means that they
+        share the same 'weights' for that layer. To make computations easier
+        these values are extracted and arranged in a matrix where each element
+        represents the pixel for where the given ray intersects the given
+        layer. This means there are possibly multiple elements that share the
+        same pixel, and this must be taken into account when doing
+        back-propogation. Thus, this mapping enables easy selection of weights
+        that share the same pixel.
+
+        Returns: a mapping between the pixels in the hidden layers and the elements in the weight matrices.
+        """
+        grid_W_map = [{} for _ in range(self.n_layers)]
+
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                for input_row in range(self.input_layer.n_rows):
+                    for input_col in range(self.input_layer.n_cols):
+                        intersections = self.ray_grid_intersections[row][col][input_row][input_col]
+
+                        for layer in range(self.n_layers):
+                            try:
+                                if input_row not in grid_W_map[layer][intersections[layer]]['row_slice']:
+                                    grid_W_map[layer][intersections[layer]]['row_slice'].append(input_row)
+                                    grid_W_map[layer][intersections[layer]]['col_slice'].append(input_col)
+                            except KeyError:
+                                grid_W_map[layer][intersections[layer]] = {'row_slice': [input_row],
+                                                                           'col_slice': [input_col]}
+
+        return grid_W_map
 
     def enable_full_transparency(self):
         """Enable full transparency on each hidden layer.
@@ -297,7 +339,7 @@ class RayTracerThing:
 
         for layer in self.hidden_layers:
             layer.pixel_values = ones
-            
+
         self.ray_grid_intersections = self._find_ray_grid_intersections()
 
     def enable_full_opacity(self):
@@ -313,7 +355,7 @@ class RayTracerThing:
 
         for layer in self.hidden_layers:
             layer.pixel_values = zeros
-            
+
         self.ray_grid_intersections = self._find_ray_grid_intersections()
 
     def forward(self, x):
@@ -331,13 +373,13 @@ class RayTracerThing:
         assert x.shape == self.input_shape, "Expected input to be of the " \
                                             "shape %s, instead got %s." \
                                             % (self.input_shape, x.shape)
-        
+
         output = torch.tensor(x)
-        
+
         for w in self.W:
-            output = output * w 
-        
-        output = torch.sum(output)#, (1, 2))
+            output = output * w
+
+        output = torch.sum(output)  # (1, 2))
 
         return self.activation(output)
 
