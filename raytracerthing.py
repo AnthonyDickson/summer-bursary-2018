@@ -302,7 +302,7 @@ class RayTracerThing:
         represents the pixel for where the given ray intersects the given
         layer. This means there are possibly multiple elements that share the
         same pixel, and this must be taken into account when doing
-        back-propogation. Thus, this mapping enables easy selection of weights
+        back-propagation. Thus, this mapping enables easy selection of weights
         that share the same pixel.
 
         Returns: a mapping between the pixels in the hidden layers and the elements in the weight matrices.
@@ -383,56 +383,47 @@ class RayTracerThing:
 
         return self.activation(output)
 
+    def zero_grad(self):
+        """Prepare the graph for the next epoch.
 
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import seaborn as sns
-    from sklearn.datasets import load_digits
+        PyTorch doesn't allow you to call `backward()` on the same graph twice,
+        so it is necessary to manually detach tensors from the graph and zero
+        gradients.
+        """
+        for w in self.W:
+            w.detach_()
+            w.requires_grad_(True)
+            w.retain_grad()
 
-    np.random.seed(42)
+            if w.grad is not None:
+                w.grad.detach_()
+                w.grad.zero_()
 
-    digits = load_digits()
-    digits.keys()
+    def broadcast_pixel_values(self):
+        """Update the weights that share the same pixel so that they have the same value.
 
-    y = digits['target']
+        Some elements in the weight matrices refer to the same pixel in the
+        pixel grid, however the pixel value is represented as multiple entries
+        in the weights matrices and are trained with back-propagation
+        separately. In reality, a single pixel can only take on a single value,
+        so this must be resolved by deciding on a single value for the pixel
+        and assigning this value to each of the matrix elements that refer to
+        the pixel.
+        """
 
-    X = digits['images']
-    X = X[y < 2]
-    X = X / X.max()
-    N = X.shape[0]
-    image_shape = X.shape[1:]
+        for layer in range(self.n_layers):
+            # The weights represent transparency values so they should be
+            # clamped to the interval [0.0, 1.0].
+            self.W[layer] = torch.clamp(self.W[layer], 0.0, 1.0)
 
-    print(N, image_shape)
+            # Adjust for pixels that are represented as separate values in the
+            # weight matrices but are actually a single entity.
+            for grid_coord in self.grid_W_map[layer]:
+                row_slice = self.grid_W_map[layer][grid_coord]['row_slice']
+                col_slice = self.grid_W_map[layer][grid_coord]['col_slice']
 
-    y = y[y < 2]
+                mean_pixel_value = self.W[layer][row_slice, col_slice].mean()
+                self.W[layer][row_slice, col_slice] = mean_pixel_value
 
-    print(y[:5])
-
-    layer_shape = image_shape
-
-    clf = RayTracerThing(input_shape=image_shape,
-                         hidden_layer_shape=layer_shape, n_layers=3,
-                         activation_func=Activations.sigmoid)
-
-    outputs = []
-
-    for i, image in enumerate(X):
-        print('\rImage %d of %d' % (i + 1, N), end='')
-        outputs.append(clf.forward(image))
-
-    print()
-
-    fig, axes = plt.subplots(5, 2, figsize=(9, 15))
-    axes = axes.ravel()
-
-    for ax, image, expected, actual in zip(axes, X[:10], y[:10], outputs[:10]):
-        sns.heatmap(image, vmin=0.0, vmax=1.0, cmap='gray', ax=ax)
-        ax.set_axis_off()
-
-        actual = 0 if actual < 0.5 else 1
-
-        color = 'green' if expected == actual else 'red'
-        ax.set_title('Predicted %d' % actual, color=color)
-
-    plt.show()
+                # Keep the original pixel array up to date.
+                self.hidden_layers[layer].pixel_values[row_slice, col_slice] = mean_pixel_value
