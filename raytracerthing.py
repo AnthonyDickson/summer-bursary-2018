@@ -26,7 +26,7 @@ class Activations:
         """Apply the softmax activation function to the input.
 
         Arguments:
-            z: the input.
+            x: the input.
 
         Returns: the input transformed with the softmax function.
         """
@@ -35,8 +35,8 @@ class Activations:
         return z / torch.sum(z, axis=0)
 
     @staticmethod
-    def sigmoid(x):
-        z = torch.exp(x)
+    def sigmoid(x, alpha=0):
+        z = torch.exp(x - alpha)
         return z / (z + 1)
 
 
