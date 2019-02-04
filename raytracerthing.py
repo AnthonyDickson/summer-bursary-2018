@@ -52,6 +52,31 @@ class Losses:
         return torch.where(true_label == 1, -torch.log(predicted_prob), -torch.log(1 - predicted_prob))
 
 
+def generate_minibatches(X, y, batch_size):
+    """Split `X` and `y` into minibatches with `batch_size` elements each.
+
+    Arguments:
+        X: The feature data to split.
+        y: The label data to split.
+        batch_size: The size of the batches to generate.
+
+    Yields: A 3-tuple containing the batch number, the X batch, and the y batch.
+    """
+    i_start = 0
+    batch_number = 0
+
+    while i_start < len(X):
+        i_end = i_start + batch_size
+
+        if i_end > len(X):
+            i_end = len(X)
+
+        yield batch_number, X[i_start:i_end], y[i_start:i_end]
+
+        i_start = i_end
+        batch_number = batch_number + 1
+
+
 class RayTracerThing:
     """This thing does some stuff."""
 
@@ -239,7 +264,7 @@ class RayTracerThing:
 
         self._setup()
 
-    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size='none', early_stopping=20):
+    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size=32, early_stopping=20):
         """Fit the classifier.
 
         Arguments:
@@ -250,7 +275,8 @@ class RayTracerThing:
                       or an integer indicating how many instances from `X` and
                       `y` should be used for validation.
             n_epochs: How many epochs to fit the model for.
-            batch_size: Not implemented yet.
+            batch_size: The size of the minibatches to use. If set to -1, then
+                        the batch size is set to the length of X.
             early_stopping: How many epochs to stop after if the loss has not
                             improved (i.e. decreased).
         """
@@ -262,21 +288,37 @@ class RayTracerThing:
         except TypeError:  # val_data was not a tuple.
             X, X_val, y, y_val = train_test_split(X, y, test_size=val_data)
 
+        if batch_size == -1:
+            batch_size = len(X)
+
         # early stopping stuff
         best_loss = float('inf')
         n_epochs_no_improvement = 0
         patience = early_stopping
 
         for epoch in range(n_epochs):
-            self.zero_grad()
+            for batch_number, X_batch, y_batch in generate_minibatches(X, y, batch_size):
+                self.zero_grad()
 
-            y_pred = self.predict_proba(X)
-            train_loss = Losses.log_loss(y, y_pred).mean()
+                y_pred = self.predict_proba(X)
+                train_loss = Losses.log_loss(y, y_pred).mean()
 
-            labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
-            train_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y, dtype=torch.float64)))
+                labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
+                train_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y, dtype=torch.float64)))
 
-            train_loss.backward()
+                train_loss.backward()
+
+                with torch.no_grad():
+                    for layer in range(self.n_layers):
+                        self.W[layer] = self.W[layer] - self.learning_rate * self.W[layer].grad
+
+                    self.broadcast_pixel_values()
+
+                print('Epoch %d of %d - %d/%d - train_loss: %.4f - train_acc: %.4f'
+                      % (epoch + 1, n_epochs,
+                         batch_number * batch_size, len(X),
+                         train_loss, train_accuracy),
+                      end='\r')
 
             with torch.no_grad():
                 y_pred = self.predict_proba(X_val)
@@ -285,17 +327,11 @@ class RayTracerThing:
                 labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
                 val_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y_val, dtype=torch.float64)))
 
-                for layer in range(self.n_layers):
-                    self.W[layer] = self.W[layer] - self.learning_rate * self.W[layer].grad
-
-                self.broadcast_pixel_values()
-
             print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
                   'val_loss: %.4f - val_acc: %.4f'
                   % (epoch + 1, n_epochs,
                      train_loss, train_accuracy,
-                     val_loss, val_accuracy),
-                  end='\r')
+                     val_loss, val_accuracy))
 
             if val_loss < best_loss:
                 best_loss = val_loss
