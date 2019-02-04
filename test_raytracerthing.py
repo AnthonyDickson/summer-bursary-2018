@@ -16,7 +16,7 @@ class TestRaytracerThing(unittest.TestCase):
         the_thing = RayTracerThing(input_shape=(2, 2), n_layers=0)
         the_thing.enable_full_transparency()
 
-        actual = the_thing.forward(image).numpy()
+        actual = the_thing.predict(image).numpy()
 
         self.assertEqual(expected, actual,
                          "Expected an output of %s, instead got %s."
@@ -31,7 +31,7 @@ class TestRaytracerThing(unittest.TestCase):
         the_thing = RayTracerThing(input_shape=(2, 2), n_layers=1)
         the_thing.enable_full_opacity()
 
-        actual = the_thing.forward(image).detach().numpy()
+        actual = the_thing.predict(image).detach().numpy()
 
         self.assertEqual(expected, actual,
                          "Expected an output of %s, instead got %s."
@@ -46,7 +46,7 @@ class TestRaytracerThing(unittest.TestCase):
         the_thing = RayTracerThing(input_shape=(2, 2), n_layers=1)
         the_thing.enable_full_transparency()
 
-        actual = the_thing.forward(image).detach().numpy()
+        actual = the_thing.predict(image).detach().numpy()
 
         self.assertEqual(expected, actual,
                          "Expected an output of %s, instead got %s."

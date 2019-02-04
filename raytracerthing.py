@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.model_selection import train_test_split
 import torch
 
 from pixelgrid import PixelGrid
@@ -40,11 +41,23 @@ class Activations:
         return z / (z + 1)
 
 
+class Losses:
+    """Implements a couple of loss functions."""
+
+    @staticmethod
+    def log_loss(true_label, predicted_prob):
+        if true_label == 1:
+            return -torch.log(predicted_prob)
+        else:
+            return -torch.log(1 - predicted_prob)
+
+
 class RayTracerThing:
     """This thing does some stuff."""
 
     def __init__(self, input_shape, n_layers=0,
-                 hidden_layer_shape=None, activation_func=Activations.identity):
+                 hidden_layer_shape=None, activation_func=Activations.identity,
+                 learning_rate=0.01):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
@@ -53,6 +66,7 @@ class RayTracerThing:
             hidden_layer_shape: The shape of the 'hidden' layers. If set to
                                 None, `hidden_layer_shape` defaults to
                                 `input_shape`.
+            learning_rate: The learning rate.
         """
         if hidden_layer_shape is None:
             hidden_layer_shape = input_shape
@@ -62,6 +76,7 @@ class RayTracerThing:
         self.output_shape = (1, 1)
         self.n_layers = n_layers
         self.activation = activation_func
+        self.learning_rate = learning_rate
 
         self.input_layer = PixelGrid(*input_shape, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
@@ -224,23 +239,125 @@ class RayTracerThing:
 
         self._setup()
 
-    def forward(self, x):
+    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size='none', early_stopping=20):
+        """Fit the classifier.
+
+        Arguments:
+            X: The feature data.
+            y: The label data.
+            val_data: The data that should be used for validation. This can
+                      be a tuple containing the validation X and y, or a ratio
+                      or an integer indicating how many instances from `X` and
+                      `y` should be used for validation.
+            n_epochs: How many epochs to fit the model for.
+            batch_size: Not implemented yet.
+            early_stopping: How many epochs to stop after if the loss has not
+                            improved (i.e. decreased).
+        """
+        assert len(X) == len(y), 'Inputs X and y should be the same length.'
+
+        try:
+            # assume val_data is a tuple
+            X_val, y_val = val_data
+        except TypeError:  # val_data was not a tuple.
+            X, X_val, y, y_val = train_test_split(X, y, test_size=val_data)
+
+        # early stopping stuff
+        best_loss = float('inf')
+        n_epochs_no_improvement = 0
+        patience = early_stopping
+
+        n_train = len(X)
+        n_val = len(X_val)
+
+        for epoch in range(n_epochs):
+            gradients = torch.zeros(n_train, self.n_layers, *self.layer_shape)
+            train_loss = 0
+            train_accuracy = 0
+
+            image_i = 0
+
+            self.zero_grad()
+
+            for image, label in zip(X, y):
+                out = self.predict_proba(image)
+                loss = Losses.log_loss(label, out)
+
+                loss.backward()
+
+                for layer in range(self.n_layers):
+                    gradients[image_i][layer] = self.W[layer].grad.clone()
+
+                train_loss += loss
+
+                predicted = 0 if out < 0.5 else 1
+
+                if predicted == label:
+                    train_accuracy += 1
+
+                image_i += 1
+
+            train_loss = train_loss / n_train
+            train_accuracy = train_accuracy / n_train
+
+            val_loss = 0
+            val_accuracy = 0
+
+            with torch.no_grad():
+                mean_grad = gradients.mean(dim=0)
+
+                for layer in range(self.n_layers):
+                    self.W[layer] = self.W[layer] - self.learning_rate * mean_grad[layer]
+
+                self.broadcast_pixel_values()
+
+                for image, label in zip(X_val, y_val):
+                    out = self.predict_proba(image)
+                    loss = Losses.log_loss(label, out)
+                    predicted = 0 if out < 0.5 else 1
+
+                    if predicted == label:
+                        val_accuracy += 1
+                    val_loss += loss
+
+            val_loss = val_loss / n_val
+            val_accuracy = val_accuracy / n_val
+
+            print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
+                  'val_loss: %.4f - val_acc: %.4f'
+                  % (epoch + 1, n_epochs,
+                     train_loss, train_accuracy,
+                     val_loss, val_accuracy),
+                  end='\r')
+
+            if val_loss < best_loss:
+                best_loss = val_loss
+                n_epochs_no_improvement = 0
+            else:
+                n_epochs_no_improvement += 1
+
+            if n_epochs_no_improvement > patience:
+                print('\nStopping early.')
+                break
+
+        print()
+
+    def predict_proba(self, X):
         """Perform a 'forward pass' of the ray tracer thing.
 
         Arguments:
-            x: The input image, must be the same shape as `input_shape`.
+            X: The input image, must be the same shape as `input_shape`.
 
-        Returns:
-            2-D array of values that is the same shape as `output_shape`.
+        Returns: The predicted labels as probabilities.
 
         Raises:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
-        assert x.shape == self.input_shape, "Expected input to be of the " \
+        assert X.shape == self.input_shape, "Expected input to be of the " \
                                             "shape %s, instead got %s." \
-                                            % (self.input_shape, x.shape)
+                                            % (self.input_shape, X.shape)
 
-        output = torch.tensor(x)
+        output = torch.tensor(X)
 
         for w in self.W:
             output = output * w
@@ -248,6 +365,21 @@ class RayTracerThing:
         output = torch.sum(output)  # (1, 2))
 
         return self.activation(output)
+
+    def predict(self, X):
+        """Perform a 'forward pass' of the ray tracer thing.
+
+        Arguments:
+            X: The input image, must be the same shape as `input_shape`.
+
+        Returns: The predicted labels.
+
+        Raises:
+            AssertionError: if the shape of `X` does not match `input_shape`.
+        """
+        y = self.predict_proba(X)
+
+        return 0 if y < 0.5 else 1
 
     def zero_grad(self):
         """Prepare the graph for the next epoch.
