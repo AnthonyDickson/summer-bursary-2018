@@ -46,10 +46,10 @@ class Losses:
 
     @staticmethod
     def log_loss(true_label, predicted_prob):
-        if true_label == 1:
-            return -torch.log(predicted_prob)
-        else:
-            return -torch.log(1 - predicted_prob)
+        if not isinstance(true_label, torch.Tensor):
+            true_label = torch.tensor(true_label)
+
+        return torch.where(true_label == 1, -torch.log(predicted_prob), -torch.log(1 - predicted_prob))
 
 
 class RayTracerThing:
@@ -267,61 +267,28 @@ class RayTracerThing:
         n_epochs_no_improvement = 0
         patience = early_stopping
 
-        n_train = len(X)
-        n_val = len(X_val)
-
         for epoch in range(n_epochs):
-            gradients = torch.zeros(n_train, self.n_layers, *self.layer_shape)
-            train_loss = 0
-            train_accuracy = 0
-
-            image_i = 0
-
             self.zero_grad()
 
-            for image, label in zip(X, y):
-                out = self.predict_proba(image)
-                loss = Losses.log_loss(label, out)
+            y_pred = self.predict_proba(X)
+            train_loss = Losses.log_loss(y, y_pred).mean()
 
-                loss.backward()
+            labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
+            train_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y, dtype=torch.float64)))
 
-                for layer in range(self.n_layers):
-                    gradients[image_i][layer] = self.W[layer].grad.clone()
-
-                train_loss += loss
-
-                predicted = 0 if out < 0.5 else 1
-
-                if predicted == label:
-                    train_accuracy += 1
-
-                image_i += 1
-
-            train_loss = train_loss / n_train
-            train_accuracy = train_accuracy / n_train
-
-            val_loss = 0
-            val_accuracy = 0
+            train_loss.backward()
 
             with torch.no_grad():
-                mean_grad = gradients.mean(dim=0)
+                y_pred = self.predict_proba(X_val)
+                val_loss = Losses.log_loss(y_val, y_pred).mean()
+
+                labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
+                val_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y_val, dtype=torch.float64)))
 
                 for layer in range(self.n_layers):
-                    self.W[layer] = self.W[layer] - self.learning_rate * mean_grad[layer]
+                    self.W[layer] = self.W[layer] - self.learning_rate * self.W[layer].grad
 
                 self.broadcast_pixel_values()
-
-                for image, label in zip(X_val, y_val):
-                    out = self.predict_proba(image)
-                    loss = Losses.log_loss(label, out)
-                    predicted = 0 if out < 0.5 else 1
-
-                    if predicted == label:
-                        val_accuracy += 1
-                    val_loss += loss
-
-            val_loss = val_loss / n_val
-            val_accuracy = val_accuracy / n_val
 
             print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
                   'val_loss: %.4f - val_acc: %.4f'
@@ -353,16 +320,19 @@ class RayTracerThing:
         Raises:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
-        assert X.shape == self.input_shape, "Expected input to be of the " \
-                                            "shape %s, instead got %s." \
-                                            % (self.input_shape, X.shape)
+        assert len(X.shape) - 1 == len(self.input_shape), \
+            'Expected input to be a batch of samples, instead got a single ' \
+            'sample.'
+        assert X.shape[1:] == self.input_shape, "Expected input to be of the " \
+                                                "shape %s, instead got %s." \
+                                                % (self.input_shape, X.shape)
 
         output = torch.tensor(X)
 
         for w in self.W:
             output = output * w
 
-        output = torch.sum(output)  # (1, 2))
+        output = torch.sum(output, (1, 2))
 
         return self.activation(output)
 
@@ -377,9 +347,10 @@ class RayTracerThing:
         Raises:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
+
         y = self.predict_proba(X)
 
-        return 0 if y < 0.5 else 1
+        return torch.where(y < 0.5, torch.zeros_like(y), torch.ones_like(y))
 
     def zero_grad(self):
         """Prepare the graph for the next epoch.
