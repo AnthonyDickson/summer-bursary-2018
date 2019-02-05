@@ -1,6 +1,6 @@
 import numpy as np
-from sklearn.model_selection import train_test_split
 import torch
+from sklearn.model_selection import train_test_split
 
 from pixelgrid import PixelGrid
 from raytracing import Ray3D
@@ -45,7 +45,7 @@ class Losses:
     """Implements a couple of loss functions."""
 
     @staticmethod
-    def log_loss(true_label, predicted_prob):
+    def log_loss(predicted_prob, true_label):
         if not isinstance(true_label, torch.Tensor):
             true_label = torch.tensor(true_label)
 
@@ -80,9 +80,9 @@ def generate_minibatches(X, y, batch_size):
 class RayTracerThing:
     """This thing does some stuff."""
 
-    def __init__(self, input_shape, n_layers=0,
-                 hidden_layer_shape=None, activation_func=Activations.identity,
-                 learning_rate=0.01):
+    def __init__(self, input_shape, n_layers=0, hidden_layer_shape=None,
+                 n_classes=2, activation_func=Activations.identity,
+                 loss_func=Losses.log_loss, learning_rate=0.01):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
@@ -91,6 +91,9 @@ class RayTracerThing:
             hidden_layer_shape: The shape of the 'hidden' layers. If set to
                                 None, `hidden_layer_shape` defaults to
                                 `input_shape`.
+            n_classes: The number of classes the classifier should expect.
+            activation_func: The activation to apply at the output layer.
+            loss_func: The loss function to use.
             learning_rate: The learning rate.
         """
         if hidden_layer_shape is None:
@@ -98,9 +101,10 @@ class RayTracerThing:
 
         self.input_shape = input_shape
         self.layer_shape = hidden_layer_shape
-        self.output_shape = (1, 1)
+        self.output_shape = (1, n_classes)
         self.n_layers = n_layers
         self.activation = activation_func
+        self.loss = loss_func
         self.learning_rate = learning_rate
 
         self.input_layer = PixelGrid(*input_shape, z=0)
@@ -181,10 +185,12 @@ class RayTracerThing:
 
         Returns: A list of weight matrices that is the same shape as the input.
         """
-        W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
+        weights = [[None for _ in range(self.output_shape[1])] for _ in range(self.output_shape[0])]
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
+                W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
+
                 for input_row in range(self.input_layer.n_rows):
                     for input_col in range(self.input_layer.n_cols):
                         intersections = self.ray_grid_intersections[row][col][input_row][input_col]
@@ -193,11 +199,13 @@ class RayTracerThing:
                             W[layer][input_row, input_col] = self.hidden_layers[layer].pixel_values[
                                 intersections[layer]]
 
-        for w in W:
-            w.requires_grad_(True)
-            w.retain_grad()
+                for w in W:
+                    w.requires_grad_(True)
+                    w.retain_grad()
 
-        return W
+                weights[row][col] = W
+
+        return weights
 
     def _get_grid_W_map(self):
         """Generate a mapping between the pixels in the hidden layers and the elements in the weight matrices.
@@ -213,10 +221,12 @@ class RayTracerThing:
 
         Returns: a mapping between the pixels in the hidden layers and the elements in the weight matrices.
         """
-        grid_W_map = [{} for _ in range(self.n_layers)]
+        grid_W_maps = [[None for _ in range(self.output_shape[1])] for _ in range(self.output_shape[0])]
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
+                grid_W_map = [{} for _ in range(self.n_layers)]
+
                 for input_row in range(self.input_layer.n_rows):
                     for input_col in range(self.input_layer.n_cols):
                         intersections = self.ray_grid_intersections[row][col][input_row][input_col]
@@ -230,7 +240,9 @@ class RayTracerThing:
                                 grid_W_map[layer][intersections[layer]] = {'row_slice': [input_row],
                                                                            'col_slice': [input_col]}
 
-        return grid_W_map
+                grid_W_maps[row][col] = grid_W_map
+
+        return grid_W_maps
 
     def enable_full_transparency(self):
         """Enable full transparency on each hidden layer.
@@ -288,6 +300,10 @@ class RayTracerThing:
         except TypeError:  # val_data was not a tuple.
             X, X_val, y, y_val = train_test_split(X, y, test_size=val_data)
 
+        if not isinstance(y, torch.Tensor):
+            y = torch.tensor(y)
+            y_val = torch.tensor(y_val)
+
         if batch_size == -1:
             batch_size = len(X)
 
@@ -300,17 +316,17 @@ class RayTracerThing:
             for batch_number, X_batch, y_batch in generate_minibatches(X, y, batch_size):
                 self.zero_grad()
 
-                y_pred = self.predict_proba(X)
-                train_loss = Losses.log_loss(y, y_pred).mean()
-
-                labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
-                train_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y, dtype=torch.float64)))
-
+                y_pred = self.predict_proba(X_batch)
+                train_loss = self.loss(y_pred, y_batch).mean()
                 train_loss.backward()
 
+                train_accuracy = self.score(X_batch, y_batch)
+
                 with torch.no_grad():
-                    for layer in range(self.n_layers):
-                        self.W[layer] = self.W[layer] - self.learning_rate * self.W[layer].grad
+                    for row in range(self.output_layer.n_rows):
+                        for col in range(self.output_layer.n_cols):
+                            for layer in range(self.n_layers):
+                                self.W[row][col][layer] -= self.learning_rate * self.W[row][col][layer].grad
 
                     self.broadcast_pixel_values()
 
@@ -322,10 +338,8 @@ class RayTracerThing:
 
             with torch.no_grad():
                 y_pred = self.predict_proba(X_val)
-                val_loss = Losses.log_loss(y_val, y_pred).mean()
-
-                labels = torch.where(y_pred < 0.5, torch.zeros_like(y_pred), torch.ones_like(y_pred))
-                val_accuracy = 1 - torch.mean(torch.abs(labels - torch.tensor(y_val, dtype=torch.float64)))
+                val_loss = self.loss(y_pred, y_val).mean()
+                val_accuracy = self.score(X_val, y_val)
 
             print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
                   'val_loss: %.4f - val_acc: %.4f'
@@ -363,12 +377,23 @@ class RayTracerThing:
                                                 "shape %s, instead got %s." \
                                                 % (self.input_shape, X.shape)
 
-        output = torch.tensor(X)
+        if not isinstance(X, torch.Tensor):
+            X = torch.tensor(X)
 
-        for w in self.W:
-            output = output * w
+        output = [[None for _ in range(self.output_layer.n_cols)] for _ in range(self.output_layer.n_rows)]
 
-        output = torch.sum(output, (1, 2))
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                pixel_output = X
+
+                for w in self.W[row][col]:
+                    pixel_output = pixel_output * w
+
+                pixel_output = torch.sum(pixel_output, (1, 2))
+
+                output[row][col] = pixel_output.reshape(-1, 1)
+
+        output = torch.cat(tuple(output[0]), dim=1)
 
         return self.activation(output)
 
@@ -383,10 +408,27 @@ class RayTracerThing:
         Raises:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
-
         y = self.predict_proba(X)
+        y = y.argmax(dim=1)
 
-        return torch.where(y < 0.5, torch.zeros_like(y), torch.ones_like(y))
+        return y.double()
+
+    def score(self, X, y):
+        """Calculate the classification accuracy over the given samples.
+
+        Arguments:
+            X: The feature data.
+            y: The labels.
+
+        Returns: The classification accuracy as a ratio.
+        """
+        with torch.no_grad():
+            y_pred = self.predict(X)
+
+            if isinstance(y, np.ndarray):
+                y = torch.tensor(y, dtype=torch.double)
+
+            return torch.mean((y_pred == y.double()).double())
 
     def zero_grad(self):
         """Prepare the graph for the next epoch.
@@ -395,14 +437,16 @@ class RayTracerThing:
         so it is necessary to manually detach tensors from the graph and zero
         gradients.
         """
-        for w in self.W:
-            w.detach_()
-            w.requires_grad_(True)
-            w.retain_grad()
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                for w in self.W[row][col]:
+                    w.detach_()
+                    w.requires_grad_(True)
+                    w.retain_grad()
 
-            if w.grad is not None:
-                w.grad.detach_()
-                w.grad.zero_()
+                    if w.grad is not None:
+                        w.grad.detach_()
+                        w.grad.zero_()
 
     def broadcast_pixel_values(self):
         """Update the weights that share the same pixel so that they have the same value.
@@ -415,20 +459,21 @@ class RayTracerThing:
         and assigning this value to each of the matrix elements that refer to
         the pixel.
         """
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                for layer in range(self.n_layers):
+                    # The weights represent transparency values so they should be
+                    # clamped to the interval [0.0, 1.0].
+                    self.W[row][col][layer] = torch.clamp(self.W[row][col][layer], 0.0, 1.0)
 
-        for layer in range(self.n_layers):
-            # The weights represent transparency values so they should be
-            # clamped to the interval [0.0, 1.0].
-            self.W[layer] = torch.clamp(self.W[layer], 0.0, 1.0)
+                    # Adjust for pixels that are represented as separate values in the
+                    # weight matrices but are actually a single entity.
+                    for grid_coord in self.grid_W_map[row][col][layer]:
+                        row_slice = self.grid_W_map[row][col][layer][grid_coord]['row_slice']
+                        col_slice = self.grid_W_map[row][col][layer][grid_coord]['col_slice']
 
-            # Adjust for pixels that are represented as separate values in the
-            # weight matrices but are actually a single entity.
-            for grid_coord in self.grid_W_map[layer]:
-                row_slice = self.grid_W_map[layer][grid_coord]['row_slice']
-                col_slice = self.grid_W_map[layer][grid_coord]['col_slice']
+                        mean_pixel_value = self.W[row][col][layer][row_slice, col_slice].mean()
+                        self.W[row][col][layer][row_slice, col_slice] = mean_pixel_value
 
-                mean_pixel_value = self.W[layer][row_slice, col_slice].mean()
-                self.W[layer][row_slice, col_slice] = mean_pixel_value
-
-                # Keep the original pixel array up to date.
-                self.hidden_layers[layer].pixel_values[row_slice, col_slice] = mean_pixel_value
+                        # Keep the original pixel array up to date.
+                        self.hidden_layers[layer].pixel_values[row_slice, col_slice] = mean_pixel_value
