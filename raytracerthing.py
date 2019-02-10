@@ -99,19 +99,23 @@ class RayTracerThing:
         if hidden_layer_shape is None:
             hidden_layer_shape = input_shape
 
+        scaling_factor = 4
+
+        hidden_layer_shape = (scaling_factor * hidden_layer_shape[0], scaling_factor * hidden_layer_shape[1])
+
         self.input_shape = input_shape
         self.layer_shape = hidden_layer_shape
-        self.output_shape = (1, n_classes)
+        self.output_shape = (1, 1)
         self.n_classes = n_classes
         self.n_layers = n_layers
         self.activation = activation_func
         self.loss = loss_func
         self.learning_rate = learning_rate
 
-        self.input_layer = PixelGrid(*input_shape, z=0)
+        self.input_layer = PixelGrid(*input_shape, pixel_size=scaling_factor, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
                               for n in range(n_layers)]
-        self.output_layer = PixelGrid(*self.output_shape, z=n_layers + 1)
+        self.output_layer = PixelGrid(*self.output_shape, pixel_size=scaling_factor, z=n_layers + 1)
 
         self._setup()
 
@@ -146,38 +150,32 @@ class RayTracerThing:
         """
         ray_grid_intersections = []
 
-        for row in range(self.output_layer.n_rows):
+        origin = self.output_layer.origin
+
+        for input_row in range(self.input_layer.n_rows):
             ray_grid_intersections.append([])
 
-            for col in range(self.output_layer.n_cols):
-                origin = self.output_layer.pixel_centers[row][col]
+            for input_col in range(self.input_layer.n_cols):
+                ray_grid_intersections[input_row].append([])
+                target = self.input_layer.pixel_centers[input_row][input_col]
 
-                ray_grid_intersections[row].append([])
+                direction = target - origin
+                ray = Ray3D(origin, direction)
 
-                for input_row in range(self.input_layer.n_rows):
-                    ray_grid_intersections[row][col].append([])
+                intersections = []
 
-                    for input_col in range(self.input_layer.n_cols):
-                        ray_grid_intersections[row][col][input_row].append([])
-                        target = self.input_layer.pixel_centers[input_row][input_col]
+                for layer in self.hidden_layers:
+                    intersection_t = layer.bounding_box.find_intersection(ray)
 
-                        direction = target - origin
-                        ray = Ray3D(origin, direction)
+                    if intersection_t is None:
+                        break
 
-                        intersections = []
+                    intersection_point = ray.get_point(intersection_t[0])
+                    grid_coords = layer.to_grid_coords(intersection_point.x, intersection_point.y)
 
-                        for layer in self.hidden_layers:
-                            intersection_t = layer.bounding_box.find_intersection(ray)
-
-                            if intersection_t is None:
-                                break
-
-                            intersection_point = ray.get_point(intersection_t[0])
-                            grid_coords = layer.to_grid_coords(intersection_point.x, intersection_point.y)
-
-                            intersections += [grid_coords]
-                        else:  # Ray intersects all layers between input and output layers.
-                            ray_grid_intersections[row][col][-1][-1] = intersections
+                    intersections += [grid_coords]
+                else:  # Ray intersects all layers between input and output layers.
+                    ray_grid_intersections[input_row][input_col] = intersections
 
         return ray_grid_intersections
 
@@ -186,27 +184,21 @@ class RayTracerThing:
 
         Returns: A list of weight matrices that is the same shape as the input.
         """
-        weights = [[None for _ in range(self.output_shape[1])] for _ in range(self.output_shape[0])]
+        W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
 
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
+        for input_row in range(self.input_layer.n_rows):
+            for input_col in range(self.input_layer.n_cols):
+                intersections = self.ray_grid_intersections[input_row][input_col]
 
-                for input_row in range(self.input_layer.n_rows):
-                    for input_col in range(self.input_layer.n_cols):
-                        intersections = self.ray_grid_intersections[row][col][input_row][input_col]
+                for layer in range(self.n_layers):
+                    W[layer][input_row, input_col] = self.hidden_layers[layer].pixel_values[
+                        intersections[layer]]
 
-                        for layer in range(self.n_layers):
-                            W[layer][input_row, input_col] = self.hidden_layers[layer].pixel_values[
-                                intersections[layer]]
+        for w in W:
+            w.requires_grad_(True)
+            w.retain_grad()
 
-                for w in W:
-                    w.requires_grad_(True)
-                    w.retain_grad()
-
-                weights[row][col] = W
-
-        return weights
+        return W
 
     def _get_grid_W_map(self):
         """Generate a mapping between the pixels in the hidden layers and the elements in the weight matrices.
@@ -222,28 +214,22 @@ class RayTracerThing:
 
         Returns: a mapping between the pixels in the hidden layers and the elements in the weight matrices.
         """
-        grid_W_maps = [[None for _ in range(self.output_shape[1])] for _ in range(self.output_shape[0])]
 
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                grid_W_map = [{} for _ in range(self.n_layers)]
+        grid_W_map = [{} for _ in range(self.n_layers)]
 
-                for input_row in range(self.input_layer.n_rows):
-                    for input_col in range(self.input_layer.n_cols):
-                        intersections = self.ray_grid_intersections[row][col][input_row][input_col]
+        for input_row in range(self.input_layer.n_rows):
+            for input_col in range(self.input_layer.n_cols):
+                intersections = self.ray_grid_intersections[input_row][input_col]
 
-                        for layer in range(self.n_layers):
-                            try:
-                                if input_row not in grid_W_map[layer][intersections[layer]]['row_slice']:
-                                    grid_W_map[layer][intersections[layer]]['row_slice'].append(input_row)
-                                    grid_W_map[layer][intersections[layer]]['col_slice'].append(input_col)
-                            except KeyError:
-                                grid_W_map[layer][intersections[layer]] = {'row_slice': [input_row],
-                                                                           'col_slice': [input_col]}
-
-                grid_W_maps[row][col] = grid_W_map
-
-        return grid_W_maps
+                for layer in range(self.n_layers):
+                    try:
+                        if input_row not in grid_W_map[layer][intersections[layer]]['row_slice']:
+                            grid_W_map[layer][intersections[layer]]['row_slice'].append(input_row)
+                            grid_W_map[layer][intersections[layer]]['col_slice'].append(input_col)
+                    except KeyError:
+                        grid_W_map[layer][intersections[layer]] = {'row_slice': [input_row],
+                                                                   'col_slice': [input_col]}
+        return grid_W_map
 
     def enable_full_transparency(self):
         """Enable full transparency on each hidden layer.
@@ -321,16 +307,14 @@ class RayTracerThing:
                 self.zero_grad()
 
                 y_pred = self.predict_proba(X_batch)
-                train_loss = self.loss(y_pred, y_batch).mean()
+                train_loss = self.loss(y_pred, y_batch.double()).mean()
                 train_loss.backward()
 
-                train_accuracy = self.score(X_batch, y_batch)
-
                 with torch.no_grad():
-                    for row in range(self.output_layer.n_rows):
-                        for col in range(self.output_layer.n_cols):
-                            for layer in range(self.n_layers):
-                                self.W[row][col][layer] -= self.learning_rate * self.W[row][col][layer].grad
+                    train_accuracy = self.score(X_batch, y_batch)
+
+                    for layer in range(self.n_layers):
+                        self.W[layer] -= self.learning_rate * self.W[layer].grad
 
                     self.broadcast_pixel_values()
 
@@ -345,7 +329,7 @@ class RayTracerThing:
 
             with torch.no_grad():
                 y_pred = self.predict_proba(X_val)
-                val_loss = self.loss(y_pred, y_val).mean()
+                val_loss = self.loss(y_pred, y_val.double()).mean()
                 val_accuracy = self.score(X_val, y_val)
 
             print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
@@ -360,15 +344,15 @@ class RayTracerThing:
             else:
                 n_epochs_no_improvement += 1
 
-            if n_epochs_no_improvement > patience:
-                self.learning_rate *= 0.1
-                n_epochs_no_improvement = 0
+                if n_epochs_no_improvement > patience:
+                    if self.learning_rate > 0.001:
+                        self.learning_rate *= 0.1
+                        n_epochs_no_improvement = 0
 
-                if self.learning_rate >= 0.001:
-                    print('Decreasing learning rate to %.4f' % self.learning_rate)
-                else:
-                    print('\nStopping early.')
-                    break
+                        print('Reducing learning rate to %.4f' % self.learning_rate)
+                    else:
+                        print('\nStopping early.')
+                        break
 
         print()
 
@@ -393,20 +377,12 @@ class RayTracerThing:
         if not isinstance(X, torch.Tensor):
             X = torch.tensor(X)
 
-        output = [[None for _ in range(self.output_layer.n_cols)] for _ in range(self.output_layer.n_rows)]
+        output = X
 
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                pixel_output = X
+        for w in self.W:
+            output = output * w
 
-                for w in self.W[row][col]:
-                    pixel_output = pixel_output * w
-
-                pixel_output = torch.sum(pixel_output, (1, 2))
-
-                output[row][col] = pixel_output.reshape(-1, 1)
-
-        output = torch.cat(tuple(output[0]), dim=1)
+        output = torch.sum(output, (1, 2))
 
         return self.activation(output)
 
@@ -422,7 +398,7 @@ class RayTracerThing:
             AssertionError: if the shape of `X` does not match `input_shape`.
         """
         y = self.predict_proba(X)
-        y = y.argmax(dim=1)
+        y = torch.where(y < 0.5, torch.zeros_like(y), torch.ones_like(y)).long()
 
         return y
 
@@ -450,16 +426,14 @@ class RayTracerThing:
         so it is necessary to manually detach tensors from the graph and zero
         gradients.
         """
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                for w in self.W[row][col]:
-                    w.detach_()
-                    w.requires_grad_(True)
-                    w.retain_grad()
+        for w in self.W:
+            w.detach_()
+            w.requires_grad_(True)
+            w.retain_grad()
 
-                    if w.grad is not None:
-                        w.grad.detach_()
-                        w.grad.zero_()
+            if w.grad is not None:
+                w.grad.detach_()
+                w.grad.zero_()
 
     def broadcast_pixel_values(self):
         """Update the weights that share the same pixel so that they have the same value.
@@ -475,26 +449,26 @@ class RayTracerThing:
         for layer in range(self.n_layers):
             self.hidden_layers[layer].pixel_values = np.zeros(self.layer_shape)
 
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                for layer in range(self.n_layers):
-                    # The weights represent transparency values so they should be
-                    # clamped to the interval [0.0, 1.0].
-                    self.W[row][col][layer] = torch.clamp(self.W[row][col][layer], 0.0, 1.0)
+        for layer in range(self.n_layers):
+            # The weights represent transparency values so they should be
+            # clamped to the interval [0.0, 1.0].
+            self.W[layer] = torch.clamp(self.W[layer], 0.0, 1.0)
 
-                    # Adjust for pixels that are represented as separate values in the
-                    # weight matrices but are actually a single entity.
-                    for grid_coord in self.grid_W_map[row][col][layer]:
-                        row_slice = self.grid_W_map[row][col][layer][grid_coord]['row_slice']
-                        col_slice = self.grid_W_map[row][col][layer][grid_coord]['col_slice']
+            # Adjust for pixels that are represented as separate values in the
+            # weight matrices but are actually a single entity.
+            for grid_coord in self.grid_W_map[layer]:
+                row_slice = self.grid_W_map[layer][grid_coord]['row_slice']
+                col_slice = self.grid_W_map[layer][grid_coord]['col_slice']
 
-                        mean_pixel_value = self.W[row][col][layer][row_slice, col_slice].mean()
-                        self.W[row][col][layer][row_slice, col_slice] = mean_pixel_value
+                mean_pixel_value = self.W[layer][row_slice, col_slice].mean()
+                self.W[layer][row_slice, col_slice] = mean_pixel_value
 
-                        self.hidden_layers[layer].pixel_values[grid_coord] += \
-                        self.W[row][col][layer][row_slice, col_slice][0]
+                self.hidden_layers[layer].pixel_values[grid_coord] += \
+                    self.W[layer][row_slice, col_slice][0]
+
+        k = self.n_classes if self.n_classes > 2 else 1
 
         for layer in range(self.n_layers):
-            self.hidden_layers[layer].pixel_values /= self.n_classes
+            self.hidden_layers[layer].pixel_values /= k
 
         self.W = self._get_W()
