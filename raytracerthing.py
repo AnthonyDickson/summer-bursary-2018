@@ -102,6 +102,7 @@ class RayTracerThing:
         self.input_shape = input_shape
         self.layer_shape = hidden_layer_shape
         self.output_shape = (1, n_classes)
+        self.n_classes = n_classes
         self.n_layers = n_layers
         self.activation = activation_func
         self.loss = loss_func
@@ -276,7 +277,7 @@ class RayTracerThing:
 
         self._setup()
 
-    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size=32, early_stopping=20):
+    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size=32, early_stopping=10):
         """Fit the classifier.
 
         Arguments:
@@ -313,6 +314,9 @@ class RayTracerThing:
         patience = early_stopping
 
         for epoch in range(n_epochs):
+            epoch_loss = 0
+            epoch_acc = 0
+
             for batch_number, X_batch, y_batch in generate_minibatches(X, y, batch_size):
                 self.zero_grad()
 
@@ -330,10 +334,13 @@ class RayTracerThing:
 
                     self.broadcast_pixel_values()
 
+                epoch_loss += train_loss
+                epoch_acc += train_accuracy
+
                 print('Epoch %d of %d - %d/%d - train_loss: %.4f - train_acc: %.4f'
                       % (epoch + 1, n_epochs,
                          batch_number * batch_size, len(X),
-                         train_loss, train_accuracy),
+                         epoch_loss / (batch_number + 1), epoch_acc / (batch_number + 1)),
                       end='\r')
 
             with torch.no_grad():
@@ -344,7 +351,7 @@ class RayTracerThing:
             print('Epoch %d of %d - train_loss: %.4f - train_acc: %.4f - '
                   'val_loss: %.4f - val_acc: %.4f'
                   % (epoch + 1, n_epochs,
-                     train_loss, train_accuracy,
+                     epoch_loss / (batch_number + 1), epoch_acc / (batch_number + 1),
                      val_loss, val_accuracy))
 
             if val_loss < best_loss:
@@ -354,8 +361,14 @@ class RayTracerThing:
                 n_epochs_no_improvement += 1
 
             if n_epochs_no_improvement > patience:
-                print('\nStopping early.')
-                break
+                self.learning_rate *= 0.1
+                n_epochs_no_improvement = 0
+
+                if self.learning_rate >= 0.001:
+                    print('Decreasing learning rate to %.4f' % self.learning_rate)
+                else:
+                    print('\nStopping early.')
+                    break
 
         print()
 
@@ -411,7 +424,7 @@ class RayTracerThing:
         y = self.predict_proba(X)
         y = y.argmax(dim=1)
 
-        return y.double()
+        return y
 
     def score(self, X, y):
         """Calculate the classification accuracy over the given samples.
@@ -426,9 +439,9 @@ class RayTracerThing:
             y_pred = self.predict(X)
 
             if isinstance(y, np.ndarray):
-                y = torch.tensor(y, dtype=torch.double)
+                y = torch.tensor(y)
 
-            return torch.mean((y_pred == y.double()).double())
+            return torch.mean((y_pred == y).double())
 
     def zero_grad(self):
         """Prepare the graph for the next epoch.
@@ -459,6 +472,9 @@ class RayTracerThing:
         and assigning this value to each of the matrix elements that refer to
         the pixel.
         """
+        for layer in range(self.n_layers):
+            self.hidden_layers[layer].pixel_values = np.zeros(self.layer_shape)
+
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
                 for layer in range(self.n_layers):
@@ -475,5 +491,10 @@ class RayTracerThing:
                         mean_pixel_value = self.W[row][col][layer][row_slice, col_slice].mean()
                         self.W[row][col][layer][row_slice, col_slice] = mean_pixel_value
 
-                        # Keep the original pixel array up to date.
-                        self.hidden_layers[layer].pixel_values[row_slice, col_slice] = mean_pixel_value
+                        self.hidden_layers[layer].pixel_values[grid_coord] += \
+                        self.W[row][col][layer][row_slice, col_slice][0]
+
+        for layer in range(self.n_layers):
+            self.hidden_layers[layer].pixel_values /= self.n_classes
+
+        self.W = self._get_W()
