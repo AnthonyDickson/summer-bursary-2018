@@ -381,6 +381,7 @@ class RayTracerThing:
 
         for w in self.W:
             output = output * w
+            output = torch.nn.Softplus(beta=10)(output)
 
         output = torch.sum(output, (1, 2))
 
