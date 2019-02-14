@@ -102,13 +102,3 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-
-# generated png files
-*.png
-# txt files used for wordclouds
-*.txt
-# Generated csv files
-bacteria/data/growth_stages.csv
-bacteria/data/wavelengths.csv
-bacteria/data/bacteria*.csv
-bacteria/*.pdf
