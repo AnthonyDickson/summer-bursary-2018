@@ -4,6 +4,7 @@
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{pdfpages}
+\usepackage{cite}
 
 % Title Page
 \title{Summer Project Report}
@@ -13,10 +14,10 @@
 \begin{document}
 \maketitle
 
-GPU-accelerated machine learning has made leaps and bounds in performance, however GPU-accelerated machine learning platforms are expensive to build, use large amounts of electricity, and often require many GPU devices for high-end performance. I have implemented a simulation of a device that can do binary and one-versus-all classification on the digits dataset with ~99\% accuracy (this is a scaled down version of the MNIST dataset that is made available through the scikit-learn python package). The device is a box-like structure that has an image displayed on one end, a number of layers of translucent pixels, and an array of detector pixels at the other end. The layers in the middle consist of pixels whose transparency can be controlled individually. By controlling individual transparency levels we may be able to model complex functions and perform image classification.
+GPU-acceleration has enabled high performance for machine learning tasks, however GPU-accelerated machine learning platforms are expensive to build, have high power consumption, and often require many GPU devices for high-end performance. Optical computation methods can potentionally offer fast and low power computation. I have implemented a simulation of an optical device that can do binary and one-versus-all classification on the digits dataset with ~99\% accuracy (this is a scaled down version of the MNIST dataset that is made available through the scikit-learn python package). 
 
 \section{Introduction}
-There has been interest in optic computing methods, increasingly so due to the high computational demand of deep learning methods. Vector-matrix and matrix-matrix multiplication can be implemented using devices called spatial light modulators, and recently experimental nano-photonic chips that implement artificial neural network in hardware have been created. While these methods look very promising, they are not very accessible due to the complexity of the devices and special hardware (although spatial light modulators are indeed available commercially).
+There has been interest in optic computing methods, increasingly so due to the high computational demand of deep learning methods. Vector-matrix and matrix-matrix multiplication can be implemented using devices called spatial light modulators \cite{53402}, and recently experimental nano-photonic chips that implement artificial neural network in hardware have been created \cite{8012714, 03303}. While these methods look very promising, they are not very accessible due to the complexity of the devices and special hardware (although spatial light modulators are indeed available commercially).
 
 \begin{figure}
 	\centering
@@ -29,7 +30,7 @@ There has been interest in optic computing methods, increasingly so due to the h
 The device that I simulate is a box-like device that is made up of multiple layers. Each layer serves a different purpose and is a 2-D array of pixels. The first layer, the input layer, is simply a display for an image. The last layer is the output layer which is a 2-D array of detector pixels, and it acts similar to the output layer of an artificial neural network. The layers in between the input and output layers are called ‘hidden layers’, just like in artificial neural networks. These layers consist of 2-D arrays of translucent pixels, and the main basis of this device is that the transparency of these pixels can be controlled individually. This leads to similar behaviour to that of spatial light modulators, where an incoming wavefront (in this case the image) is modulated based on position. The total light intensity is measured at the output layer and is put through an activation function to give the final output of the device.
 
 \section{Modeling the Device}
-Some assumptions are made about the device. For one, I only consider light that has a path that can traced from a pixel in the input image directly to a pixel in the output layer. No reflection, refraction, or anything like that is considered in the model. The inverse square law that describes how the intensity of decreases with respect to distance is not considered. Pixel arrays in the device are assumed to have zero space between pixels, i.e. having a pixel fill factor of 100\%. Pixels are assumed to be square shaped. In other words, the model that I have implemented is a rather simplified model.
+Some assumptions are made about the device. For one, I only consider light that has a path that can traced from a pixel in the input image directly to a pixel in the output layer. No reflection, refraction, or anything like that is considered in the model. The inverse square law that describes how the intensity of decreases with respect to distance is not considered. Pixel arrays in the device are assumed to have zero space between pixels, i.e. having a pixel fill factor of 100\%. Pixels are assumed to be square shaped. In other words, the model that I have implemented is a simple model.
 
 The device is modeled with 3-D axis-aligned bounding boxes, and light paths are modeled via ray tracing. Each hidden layer has the transparency of its pixels set to a random value in the interval [0, 1].
 
@@ -50,22 +51,24 @@ where $\sigma$ is an activation function, $X_{ij}$ is the value of the pixel loc
 My initial approach to calculating the output of the device was to calculate the light intensity of each of the rays individually, sum the light intensity values, and then apply the activation function. However this approach means that it is difficult to use libraries like TensorFlow or PyTorch and take advantage of their ability to automatically calculate gradients. The reason for this is that calculating the light intensity of each of the rays individually involves only scalar values and the calculations can not be vectorised.
 
 Vectorising the ‘forward pass’ of the model is not entirely trivial, since it is possible that ray paths intersect the same pixel in a given layer and the number of pixels used varies between layers. 
-My solution to this problem is to think of the forward pass more in terms of the rays. There are a fixed number of rays for each forward pass. Therefore the value of an output pixel can be thought of as the sum of the light intensity of $n$ rays, where $n$ is the number of pixels in the input image and thus the number of rays cast from the output pixel to the input image. Each of these rays intersect each hidden layer exactly once. Using the intersection points of the rays and hidden layers we can construct a matrix for each layer, where each element encodes the transparency value of the pixel that the corresponding ray intersects. These matrices act as the weight matrices used during a forward pass. The output of a pixel in the output layer can now be expressed as: 
+My solution to this problem is to think of the forward pass more in terms of the rays. There are a fixed number of rays for each forward pass. Therefore the value of an output pixel can be thought of as the sum of the light intensity of $n$ rays, where $n$ is the number of pixels in the input image and thus the number of rays cast from the output pixel to the input image. Each of these rays intersect each hidden layer exactly once. Using the intersection points of the rays and hidden layers we can construct a matrix for each layer, where each element encodes the transparency value of the pixel that one of the rays intersect. These matrices act as the weight matrices used during a forward pass. The output of a pixel in the output layer can now be expressed as: 
 $$I_p=\sigma(W\circ X)$$
 where $W$ is the element-wise product of all of the weight matrices and $X$ is the input image and $\sigma$ is an activation function.
 
 \section{Updating Pixel Values}
-Due to the way that rays are cast from output pixels to the input image, some rays intersect the same physical pixel but these intersections are represented as separate elements in the weight matrices. During back-propagation these elements that share the same pixel may end up with different values. A physical pixel may only have one value at a time so these diverging values must be resolved to a single value. This is done by averaging the weights that correspond to the same pixel in a hidden layer.
+Due to the way that rays are cast from output pixels to the input image, some rays intersect the same physical pixel but these intersections are represented as separate elements in the weight matrices. During back-propagation these elements that share the same pixel may end up with different values. A physical pixel may only have one value at a time so these diverging values must be resolved to a single value. This is done by averaging the weights that correspond to the same hidden layer pixel.
 
-Additionally, when there are multiple output pixels, each output pixel has a unique set of rays traced from itself to the pixels in the input image. This also means that the set of ray-pixel intersections are also unique to each output pixel, meaning each output pixel has a unique set of weight matrices. This is a problem because now not only between individual weights are pixel values shared, but also between multiple weight matrices. I took a similar approach to resolving the discrepancies between the individual weights that share the same physical pixel by averaging across the sets of weights. After applying the standard learning rule w=w-▽J(w), the weight matrices for each hidden layer are summed element-wise and then divided element-wise by a matrix where each element is the number of rays that intersect the given pixel in the hidden layer. The result is that weights that share the same pixel are first averaged within each weight matrix separately, and then across each weight matrix for the given hidden layer.
+Additionally, when there are multiple output pixels, each output pixel has a unique set of rays traced from itself to the pixels in the input image. This also means that the set of ray-pixel intersections are also unique to each output pixel, meaning each output pixel has a unique set of weight matrices. This is a problem because now not only between individual weights are pixel values shared, but also between multiple weight matrices. I took a similar approach to resolving the discrepancies between the individual weights that share the same physical pixel by averaging across the sets of weights. After applying the standard learning rule $w=w-\nabla J(w)$, the weights for each hidden layer pixel are summed and then divided by the number of rays that intersect the given hidden layer pixel. In summary, weights that share the same pixel are first averaged within each weight matrix separately, and then across each weight matrix for the given hidden layer.
 
 \section{Experiments}
 The dataset that I did my experiments on is the digits dataset, a scaled down version of the MNIST dataset that is distributed with the scikit-learn python package. This dataset consists of 1797 8x8 images. Prior to training the dataset is split into training and testing sets. During training, a validation set is split off from the training set. After training is complete the performance of the model is evaluated on the test set.
 
 The model is trained with minibatch SGD, utilising early stopping and an adaptive learning rate. 
-The performance on the validation set is monitored and when the validation loss does not decrease over a given number of epochs, the learning rate is decreased. Training is stopped early if the learning rate is decreased past the limit.
+The performance on the validation set is monitored and when the validation loss does not decrease over a given number of epochs, the learning rate is decreased. Training is stopped early if the learning rate is decreased past the given limit.
 
-For multi-label classification, the dataset is used as-is. However, for binary and one-versus-all classification the dataset is modified. For binary classification only images of zeros and ones are used. For one-versus-all classification, an equal number of zeros and other digits are selected. It is important to have an equal number of zeros and non-zero digits otherwise the dataset becomes unbalanced and the model ends up just predicting the majority class (i.e. the non-zero digits).
+For binary and one-versus-all classification, an output layer with two outputs are used, rather than just a single output. This is done for convenience so that no matter whether I am testing binary, one-versus-all, or multi-label classification I can use the same model with the same activation and loss functions.
+
+For multi-label classification, the dataset is used as-is. However, for binary and one-versus-all classification the dataset is modified. For binary classification only images of zeros and ones are used. For one-versus-all classification, the labels are set to one for the instances of the digit zero, and set to zero for instances of the remaining digits.
 
 The model achieves ~99\% accuracy when performing binary classification or one-versus-all classification. In multi-label classification the model achieves ~62\% accuracy. For more detailed results refer to the appenicies or the jupyter notebooks.
 
@@ -83,25 +86,29 @@ Ignoring the activation function $\sigma$ for a moment, it seems like the model 
 \begin{equation*}
 \begin{aligned}
 y &= X\beta + \epsilon \\
-  &= \sum_{i}X_i\beta_i + \epsilon
+  &= \sum_{i}\beta_i X_i + \epsilon
 \end{aligned}
 \end{equation*}
-These equations are nearly identical, with the only major differences being an extra summation the absence of the term  in the first equation. This poses the concern that the model will have limited abilities to learn complex functions.
+These equations are nearly identical, with the only major differences being an extra summation the absence of the term $\epsilon$ in the first equation. This poses the concern that the model will have limited abilities to learn complex functions.
 
 \section{Future Work}
 One thing that I have not tried is distributing, or dispersing, the output pixels so as to minimise the amount of pixel sharing. This may likely improve the models ability to learn as there will be less competition between outputs.
 
-There is one major issue with my current implementation. It is difficult to use the model with datasets other than those that can be loaded directly via scikit-learn’s dataset API. This is because for testing binary and one-versus-all classification I need to be able to manipulate the feature data and labels. This is a bit difficult with PyTorch’s data loader API. Also it is difficult to do the train, validation, test split that I am currently doing. 
+There is an issue with my current implementation, it is difficult to use the model with datasets other than those that can be loaded directly via scikit-learn’s dataset API. This is because for testing binary and one-versus-all classification I need to be able to manipulate the feature data and labels. This is a bit difficult with PyTorch’s data loader API. Also it is difficult to do the train, validation, test split that I am currently doing. 
 
 
-It was initially thought that multiplying the light intensity by a transparency value would act like a ReLU non-linearity. However, due to the fact that there are no negative values in light intensity the clipping behaviour of the function for x < 0 does not occur, meaning that there is effectively no non-linearity in the model, i.e. the model is entirely linear. There has been some research into optical implementations of various activation functions. One particular type of device comes to mind, saturable absorbers. These typically produce an output that is similar to the softplus activation function. For the simulation it may be worthwhile to try adding a softplus layer after each hidden layer to try introduce a nonlinearity into the model.
+It was initially thought that multiplying the light intensity by a transparency value would act like a ReLU non-linearity. However, due to the fact that there are no negative values in light intensity the clipping behaviour of the function for $x < 0$ does not occur, meaning that there is effectively no non-linearity in the model, i.e. the model is linear. There has been some research into optical implementations of various activation functions \cite{George:18, LI2019405}. One particular type of device comes to mind, saturable absorbers. These typically produce an output that is similar to the softplus activation function. For the simulation it may be worthwhile to try adding a softplus layer after each hidden layer to try introduce a nonlinearity into the model.
 
 \section{Conclusion}
-I have implemented a simulation of a device that can perform basic binary and one-versus-all classification, however the model seems to struggle with multi-label classification. The main issue with the device is pixel sharing, overcoming this issue should allow for better classification performance. Additionally, the performance of the model has only been tested on the digits dataset, so I think the next thing that should be on the project is to test the model on other datasets such as CIFAR-10.
+I have implemented a simulation of a device that can perform basic binary and one-versus-all classification, however the model seems to struggle with multi-label classification. The main issues with the device are pixel sharing and linearity, overcoming these issues should allow for better classification performance. Additionally, the performance of the model has only been tested on the digits dataset, so I think the next thing that should be on the project is to test the model on other datasets such as CIFAR-10.
+
+\newpage
+\bibliographystyle{plain}
+\bibliography{report}
 
 \newpage
 \appendix
-\section{Appendix A: Classification Reports}
+\section*{Appendix A: Classification Reports}
 \begin{table}[h]
 	\begin{tabular}{l|llll}
 		& precision & recall & f1-score & support \\ \hline
@@ -109,7 +116,7 @@ I have implemented a simulation of a device that can perform basic binary and on
 		1 & 1.00 & 1.00 & 1.00 & 37  \\
 		avg / total & 1.00 & 1.00 & 1.00 & 72 
 	\end{tabular}
-	\caption{Binary Classification Classification Report.}
+	\caption{Binary Classification Report.}
 \end{table}
 
 \begin{table}[h]
@@ -119,7 +126,7 @@ I have implemented a simulation of a device that can perform basic binary and on
 		1 & 1.00 & 0.91 & 0.95 & 33  \\
 		avg / total & 0.99 & 0.99 & 0.99 & 360 
 	\end{tabular}
-	\caption{One-Versus-All Classification Classification Report.}
+	\caption{One-Versus-All Classification Report.}
 \end{table}
 
 \begin{table}[h]
@@ -137,18 +144,18 @@ I have implemented a simulation of a device that can perform basic binary and on
 		9 & 0.00 & 0.00 & 0.00 & 40 \\
 		avg / total & 0.46 & 0.63 & 0.52 & 360
 	\end{tabular}
-	\caption{Multi-Label Classification Classification Report.}
+	\caption{Multi-Label Classification Report. Note that the model did not correctly classify any instances of the digits three, five, or nine.}
 \end{table}
 
 \newpage
-\section{Appendix B: Confusion Matrices}
+\section*{Appendix B: Confusion Matrices}
 
 \begin{figure}[h!]
 	\centering
 	\scalebox{.75}{
 		\includegraphics{../images/binary_classification_confusion_matrix}
 	}
-	\caption{Binary Classification Confusion Matrix}
+	\caption{Binary Classification Confusion Matrix.}
 \end{figure}
 
 \begin{figure}[h!]
@@ -156,7 +163,7 @@ I have implemented a simulation of a device that can perform basic binary and on
 	\scalebox{.75}{
 		\includegraphics{../images/one-versus-all_classification_confusion_matrix}
 	}
-	\caption{One-Versus-All Classification Confusion Matrix}
+	\caption{One-Versus-All Classification Confusion Matrix.}
 \end{figure}
 
 \begin{figure}[h!]
@@ -164,12 +171,12 @@ I have implemented a simulation of a device that can perform basic binary and on
 	\scalebox{.75}{
 		\includegraphics{../images/multi-label_classification_confusion_matrix}
 	}
-	\caption{Multi-Label Classification Confusion Matrix}
+	\caption{Multi-Label Classification Confusion Matrix. Note that the model did not correctly classify any instances of the digits three, five, or nine.}
 \end{figure}
 \clearpage
 
 \newpage
-\section{Appendix C: Sample of Predictions}
+\section*{Appendix C: Sample of Predictions}
 
 \begin{figure}[h!]
 	\centering
@@ -202,7 +209,7 @@ I have implemented a simulation of a device that can perform basic binary and on
 \end{figure}
 
 \newpage
-\section{Appendix D: Hidden Layer Pixel View}
+\section*{Appendix D: Hidden Layer Pixel View}
 
 \begin{figure}[h]
 	\centering

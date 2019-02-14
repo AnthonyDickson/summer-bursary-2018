@@ -1,0 +1,34 @@
+\begin{thebibliography}{1}
+
+\bibitem{03303}
+Hengameh Bagherian, Scott~A. Skirlo, Yichen Shen, Huaiyu Meng, Vladimir
+  Ceperic, and Marin Soljacic.
+\newblock On-chip optical convolutional neural networks.
+\newblock {\em CoRR}, abs/1808.03303, 2018.
+
+\bibitem{George:18}
+Jonathan George, Rubab Amin, Armin Mehrabian, Jacob Khurgin, Tarek El-Ghazawi,
+  Paul~R. Prucnal, and Volker~J. Sorger.
+\newblock Electrooptic nonlinear activation functions for vector matrix
+  multiplications in optical neural networks.
+\newblock In {\em Advanced Photonics 2018 (BGPP, IPR, NP, NOMA, Sensors,
+  Networks, SPPCom, SOF)}, page SpW4G.3. Optical Society of America, 2018.
+
+\bibitem{LI2019405}
+Qiang Li, Zhi Wang, Huiying Wang, Can Cui, and Chongqing Wu.
+\newblock Artificial neuron based on nonlinear polarization rotation in a
+  semiconductor optical amplifier.
+\newblock {\em Optics Communications}, 435:405 -- 408, 2019.
+
+\bibitem{53402}
+J.~A. {Neff}, R.~A. {Athale}, and S.~H. {Lee}.
+\newblock Two-dimensional spatial light modulators: a tutorial.
+\newblock {\em Proceedings of the IEEE}, 78(5):826--855, May 1990.
+
+\bibitem{8012714}
+Y.~{Shen}, N.~C. {Harris}, S.~{Skirlo}, D.~{Englund}, and M.~{Soljačić}.
+\newblock Deep learning with coherent nanophotonic circuits.
+\newblock In {\em 2017 IEEE Photonics Society Summer Topical Meeting Series
+  (SUM)}, pages 189--190, July 2017.
+
+\end{thebibliography}
