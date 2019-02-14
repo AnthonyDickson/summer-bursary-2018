@@ -31,9 +31,7 @@ class Activations:
 
         Returns: the input transformed with the softmax function.
         """
-        z = torch.exp(x)
-
-        return z / torch.sum(z, axis=0)
+        return torch.softmax(x, dim=1)
 
     @staticmethod
     def sigmoid(x, alpha=0):
@@ -80,14 +78,15 @@ def generate_minibatches(X, y, batch_size):
 class RayTracerThing:
     """This thing does some stuff."""
 
-    def __init__(self, input_shape, n_layers=0, hidden_layer_shape=None,
+    def __init__(self, input_shape, n_hidden_layers=0, hidden_layer_shape=None,
                  n_classes=2, activation_func=Activations.identity,
-                 loss_func=Losses.log_loss, learning_rate=0.01):
+                 loss_func=Losses.log_loss, learning_rate=0.01,
+                 pixel_density=8):
         """Create a ray tracer thing (need to think of a better name).
 
         Arguments:
             input_shape: The shape of the input image.
-            n_layers: The number of 'hidden' layers to add.
+            n_hidden_layers: The number of 'hidden' layers to add.
             hidden_layer_shape: The shape of the 'hidden' layers. If set to
                                 None, `hidden_layer_shape` defaults to
                                 `input_shape`.
@@ -95,23 +94,26 @@ class RayTracerThing:
             activation_func: The activation to apply at the output layer.
             loss_func: The loss function to use.
             learning_rate: The learning rate.
+            pixel_density: The pixel density of the hidden layers relative to the input and output layers.
         """
         if hidden_layer_shape is None:
             hidden_layer_shape = input_shape
 
+        hidden_layer_shape = (pixel_density * hidden_layer_shape[0], pixel_density * hidden_layer_shape[1])
+
         self.input_shape = input_shape
-        self.layer_shape = hidden_layer_shape
+        self.hidden_layer_shape = hidden_layer_shape
         self.output_shape = (1, n_classes)
         self.n_classes = n_classes
-        self.n_layers = n_layers
+        self.n_hidden_layers = n_hidden_layers
         self.activation = activation_func
         self.loss = loss_func
         self.learning_rate = learning_rate
 
-        self.input_layer = PixelGrid(*input_shape, z=0)
+        self.input_layer = PixelGrid(*input_shape, pixel_size=pixel_density, z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
-                              for n in range(n_layers)]
-        self.output_layer = PixelGrid(*self.output_shape, z=n_layers + 1)
+                              for n in range(n_hidden_layers)]
+        self.output_layer = PixelGrid(*self.output_shape, pixel_size=pixel_density, z=n_hidden_layers + 1)
 
         self._setup()
 
@@ -125,6 +127,7 @@ class RayTracerThing:
         self.ray_grid_intersections = self._find_ray_grid_intersections()
         self.W = self._get_W()
         self.grid_W_map = self._get_grid_W_map()
+        self.inverse_pixel_frequencies = self._get_inverse_pixel_frequencies()
 
     def _find_ray_grid_intersections(self):
         """Find the grid coordinates for where each ray cast during a forward
@@ -190,13 +193,13 @@ class RayTracerThing:
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
-                W = [torch.zeros(self.input_shape) for _ in range(self.n_layers)]
+                W = [torch.zeros(self.input_shape) for _ in range(self.n_hidden_layers)]
 
                 for input_row in range(self.input_layer.n_rows):
                     for input_col in range(self.input_layer.n_cols):
                         intersections = self.ray_grid_intersections[row][col][input_row][input_col]
 
-                        for layer in range(self.n_layers):
+                        for layer in range(self.n_hidden_layers):
                             W[layer][input_row, input_col] = self.hidden_layers[layer].pixel_values[
                                 intersections[layer]]
 
@@ -226,17 +229,16 @@ class RayTracerThing:
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
-                grid_W_map = [{} for _ in range(self.n_layers)]
+                grid_W_map = [{} for _ in range(self.n_hidden_layers)]
 
                 for input_row in range(self.input_layer.n_rows):
                     for input_col in range(self.input_layer.n_cols):
                         intersections = self.ray_grid_intersections[row][col][input_row][input_col]
 
-                        for layer in range(self.n_layers):
+                        for layer in range(self.n_hidden_layers):
                             try:
-                                if input_row not in grid_W_map[layer][intersections[layer]]['row_slice']:
-                                    grid_W_map[layer][intersections[layer]]['row_slice'].append(input_row)
-                                    grid_W_map[layer][intersections[layer]]['col_slice'].append(input_col)
+                                grid_W_map[layer][intersections[layer]]['row_slice'].append(input_row)
+                                grid_W_map[layer][intersections[layer]]['col_slice'].append(input_col)
                             except KeyError:
                                 grid_W_map[layer][intersections[layer]] = {'row_slice': [input_row],
                                                                            'col_slice': [input_col]}
@@ -245,39 +247,43 @@ class RayTracerThing:
 
         return grid_W_maps
 
-    def enable_full_transparency(self):
-        """Enable full transparency on each hidden layer.
+    def _get_inverse_pixel_frequencies(self):
+        """Calculate the pixel frequencies (number of rays that intersect each
+        pixel in the hidden layers) for each hidden layer.
 
-        Set each pixel in every hidden layer to have a value of 1, meaning that
-        any light that passes through the hidden layers is unhindered and does
-        not lose any intensity.
+        The pixel frequencies denote how many rays intersect a given pixel in a
+        given hidden layer. These frequencies are used to average the weight
+        matrices during training (see broadcast_pixel_values()).
 
-        Mainly useful for testing.
+        The inverse pixel frequencies are used as an optimisation since
+        multiplication is typically faster than division, and averaging the
+        weight matrices is something that happens frequently during training.
+
+        Returns: a list of inverse pixel frequencies for each layer.
         """
-        ones = np.ones(self.layer_shape)
+        pixel_frequencies = [np.zeros(self.hidden_layer_shape) for _ in range(self.n_hidden_layers)]
 
-        for layer in self.hidden_layers:
-            layer.pixel_values = ones
+        for row in range(self.output_layer.n_rows):
+            for col in range(self.output_layer.n_cols):
+                for layer in range(self.n_hidden_layers):
+                    for grid_row, grid_col in self.grid_W_map[row][col][layer]:
+                        row_slice = self.grid_W_map[row][col][layer][grid_row, grid_col]['row_slice']
 
-        self._setup()
+                        pixel_frequencies[layer][grid_row][grid_col] += len(row_slice)
 
-    def enable_full_opacity(self):
-        """Enable full opacity on each hidden layer.
+        inverse_pixel_frequencies = []
 
-        Set each pixel in every hidden layer to have a value of 0, meaning that
-        any light that tries to pass through the hidden layers is completely
-        blocked.
+        for layer in range(self.n_hidden_layers):
+            layer_pixel_frequencies = np.divide(pixel_frequencies[layer], 1,
+                                                out=np.zeros_like(pixel_frequencies[layer]),
+                                                where=pixel_frequencies[layer] != 0)
+            inverse_pixel_frequencies.append(layer_pixel_frequencies)
 
-        Mainly useful for testing.
-        """
-        zeros = np.zeros(self.layer_shape)
+        return inverse_pixel_frequencies
 
-        for layer in self.hidden_layers:
-            layer.pixel_values = zeros
-
-        self._setup()
-
-    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size=32, early_stopping=10):
+    def fit(self, X, y, val_data=0.2, n_epochs=100, batch_size=32,
+            early_stopping=10, early_stopping_epsilon=1e-9,
+            min_learning_rate=1e-4):
         """Fit the classifier.
 
         Arguments:
@@ -292,6 +298,11 @@ class RayTracerThing:
                         the batch size is set to the length of X.
             early_stopping: How many epochs to stop after if the loss has not
                             improved (i.e. decreased).
+            early_stopping_epsilon: The minimum amount of improvement in loss
+                                    before there is considered to be no
+                                    improvement.
+            min_learning_rate: The lowest value the learning rate should be
+                               lowered to before stopping early.
         """
         assert len(X) == len(y), 'Inputs X and y should be the same length.'
 
@@ -318,7 +329,7 @@ class RayTracerThing:
             epoch_acc = 0
 
             for batch_number, X_batch, y_batch in generate_minibatches(X, y, batch_size):
-                self.zero_grad()
+                self._zero_grad()
 
                 y_pred = self.predict_proba(X_batch)
                 train_loss = self.loss(y_pred, y_batch).mean()
@@ -329,10 +340,10 @@ class RayTracerThing:
                 with torch.no_grad():
                     for row in range(self.output_layer.n_rows):
                         for col in range(self.output_layer.n_cols):
-                            for layer in range(self.n_layers):
+                            for layer in range(self.n_hidden_layers):
                                 self.W[row][col][layer] -= self.learning_rate * self.W[row][col][layer].grad
 
-                    self.broadcast_pixel_values()
+                    self._broadcast_pixel_values()
 
                 epoch_loss += train_loss
                 epoch_acc += train_accuracy
@@ -354,7 +365,7 @@ class RayTracerThing:
                      epoch_loss / (batch_number + 1), epoch_acc / (batch_number + 1),
                      val_loss, val_accuracy))
 
-            if val_loss < best_loss:
+            if best_loss - val_loss > early_stopping_epsilon:
                 best_loss = val_loss
                 n_epochs_no_improvement = 0
             else:
@@ -364,7 +375,7 @@ class RayTracerThing:
                 self.learning_rate *= 0.1
                 n_epochs_no_improvement = 0
 
-                if self.learning_rate >= 0.001:
+                if self.learning_rate >= min_learning_rate:
                     print('Decreasing learning rate to %.4f' % self.learning_rate)
                 else:
                     print('\nStopping early.')
@@ -443,7 +454,7 @@ class RayTracerThing:
 
             return torch.mean((y_pred == y).double())
 
-    def zero_grad(self):
+    def _zero_grad(self):
         """Prepare the graph for the next epoch.
 
         PyTorch doesn't allow you to call `backward()` on the same graph twice,
@@ -461,7 +472,7 @@ class RayTracerThing:
                         w.grad.detach_()
                         w.grad.zero_()
 
-    def broadcast_pixel_values(self):
+    def _broadcast_pixel_values(self):
         """Update the weights that share the same pixel so that they have the same value.
 
         Some elements in the weight matrices refer to the same pixel in the
@@ -472,12 +483,13 @@ class RayTracerThing:
         and assigning this value to each of the matrix elements that refer to
         the pixel.
         """
-        for layer in range(self.n_layers):
-            self.hidden_layers[layer].pixel_values = np.zeros(self.layer_shape)
+        for layer in range(self.n_hidden_layers):
+            self.hidden_layers[layer].pixel_values = np.zeros(self.hidden_layer_shape)
 
         for row in range(self.output_layer.n_rows):
             for col in range(self.output_layer.n_cols):
-                for layer in range(self.n_layers):
+                for layer in range(self.n_hidden_layers):
+
                     # The weights represent transparency values so they should be
                     # clamped to the interval [0.0, 1.0].
                     self.W[row][col][layer] = torch.clamp(self.W[row][col][layer], 0.0, 1.0)
@@ -491,10 +503,10 @@ class RayTracerThing:
                         mean_pixel_value = self.W[row][col][layer][row_slice, col_slice].mean()
                         self.W[row][col][layer][row_slice, col_slice] = mean_pixel_value
 
-                        self.hidden_layers[layer].pixel_values[grid_coord] += \
-                        self.W[row][col][layer][row_slice, col_slice][0]
+                        self.hidden_layers[layer].pixel_values[grid_coord] += mean_pixel_value
 
-        for layer in range(self.n_layers):
-            self.hidden_layers[layer].pixel_values /= self.n_classes
+        for layer in range(self.n_hidden_layers):
+            self.hidden_layers[layer].pixel_values *= self.inverse_pixel_frequencies[layer]
+            self.hidden_layers[layer].pixel_values = self.hidden_layers[layer].pixel_values.clip(1e-9, 1)
 
         self.W = self._get_W()
