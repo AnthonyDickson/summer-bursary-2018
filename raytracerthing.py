@@ -1,3 +1,7 @@
+"""This module defines a classifier that has an interface similar to
+scikit-learn models.
+"""
+
 import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
@@ -79,8 +83,8 @@ class RayTracerThing:
     """This thing does some stuff."""
 
     def __init__(self, input_shape, n_hidden_layers=0, hidden_layer_shape=None,
-                 n_classes=2, activation_func=Activations.identity,
-                 loss_func=Losses.log_loss, learning_rate=0.01,
+                 n_classes=2, activation_func=Activations.softmax,
+                 loss_func=torch.nn.functional.cross_entropy, learning_rate=1,
                  pixel_density=8):
         """Create a ray tracer thing (need to think of a better name).
 
@@ -94,12 +98,25 @@ class RayTracerThing:
             activation_func: The activation to apply at the output layer.
             loss_func: The loss function to use.
             learning_rate: The learning rate.
-            pixel_density: The pixel density of the hidden layers relative to the input and output layers.
+            pixel_density: The pixel density of the hidden layers relative to
+                           the input and output layers.
         """
         if hidden_layer_shape is None:
             hidden_layer_shape = input_shape
 
-        hidden_layer_shape = (pixel_density * hidden_layer_shape[0], pixel_density * hidden_layer_shape[1])
+        assert hidden_layer_shape[0] >= input_shape[0] and \
+               hidden_layer_shape[1] >= input_shape[1], \
+            "The hidden layer dimensions should be at least as large as the " \
+            "dimensions of the input layer. An input shape of %s was given " \
+            "with a hidden layer shape of %s." % (input_shape, hidden_layer_shape)
+
+        assert min(hidden_layer_shape) >= n_classes, \
+            "The minimum dimension of the hidden layer shape should be no " \
+            "less than the number of classes. There are %d classes specified " \
+            "but hidden layer dimensions of %s were given." % (n_classes, hidden_layer_shape)
+
+        hidden_layer_shape = (pixel_density * hidden_layer_shape[0],
+                              pixel_density * hidden_layer_shape[1])
 
         self.input_shape = input_shape
         self.hidden_layer_shape = hidden_layer_shape
@@ -110,20 +127,15 @@ class RayTracerThing:
         self.loss = loss_func
         self.learning_rate = learning_rate
 
-        self.input_layer = PixelGrid(*input_shape, pixel_size=pixel_density, z=0)
+        self.input_layer = PixelGrid(*input_shape,
+                                     pixel_size=pixel_density,
+                                     z=0)
         self.hidden_layers = [PixelGrid(*hidden_layer_shape, z=1 + n)
                               for n in range(n_hidden_layers)]
-        self.output_layer = PixelGrid(*self.output_shape, pixel_size=pixel_density, z=n_hidden_layers + 1)
+        self.output_layer = PixelGrid(*self.output_shape,
+                                      pixel_size=pixel_density,
+                                      z=n_hidden_layers + 1)
 
-        self._setup()
-
-    def _setup(self):
-        """Prepare the model for training.
-
-        This should be called before training and if the pixel values are
-        modified manually to ensure that the weights and pixel values are in
-        sync.
-        """
         self.ray_grid_intersections = self._find_ray_grid_intersections()
         self.W = self._get_W()
         self.grid_W_map = self._get_grid_W_map()
@@ -307,7 +319,6 @@ class RayTracerThing:
         assert len(X) == len(y), 'Inputs X and y should be the same length.'
 
         try:
-            # assume val_data is a tuple
             X_val, y_val = val_data
         except TypeError:  # val_data was not a tuple.
             X, X_val, y, y_val = train_test_split(X, y, test_size=val_data)
@@ -329,8 +340,6 @@ class RayTracerThing:
             epoch_acc = 0
 
             for batch_number, X_batch, y_batch in generate_minibatches(X, y, batch_size):
-                self._zero_grad()
-
                 y_pred = self.predict_proba(X_batch)
                 train_loss = self.loss(y_pred, y_batch).mean()
                 train_loss.backward()
@@ -453,24 +462,6 @@ class RayTracerThing:
                 y = torch.tensor(y)
 
             return torch.mean((y_pred == y).double())
-
-    def _zero_grad(self):
-        """Prepare the graph for the next epoch.
-
-        PyTorch doesn't allow you to call `backward()` on the same graph twice,
-        so it is necessary to manually detach tensors from the graph and zero
-        gradients.
-        """
-        for row in range(self.output_layer.n_rows):
-            for col in range(self.output_layer.n_cols):
-                for w in self.W[row][col]:
-                    w.detach_()
-                    w.requires_grad_(True)
-                    w.retain_grad()
-
-                    if w.grad is not None:
-                        w.grad.detach_()
-                        w.grad.zero_()
 
     def _broadcast_pixel_values(self):
         """Update the weights that share the same pixel so that they have the same value.
